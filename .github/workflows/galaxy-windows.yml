@@ -1,9 +1,15 @@
 name: Galaxy Launcher (Windows installer)
 
 # Builds GalaxyLauncher-Setup.exe for 64-bit Windows with Prism's own dependency setup and NSIS script.
-# Microsoft sign-in uses the repository variable MSA_CLIENT_ID (your own Microsoft Entra application ID), if set.
 
 on:
+  push:
+    branches:
+      - galaxy-launcher
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "install-linux.sh"
   workflow_dispatch:
 
 concurrency:
@@ -23,7 +29,6 @@ jobs:
       BUILD_PLATFORM: galaxy
       BUILD_TYPE: Release
       CMAKE_PRESET: windows_msvc
-      MSA_CLIENT_ID: ${{ vars.MSA_CLIENT_ID }}
 
     defaults:
       run:
@@ -46,7 +51,7 @@ jobs:
       - name: Configure
         run: |
           cmake --preset "$CMAKE_PRESET" -D VCPKG_HOST_TRIPLET="$VCPKG_TRIPLET" -D VCPKG_TARGET_TRIPLET="$VCPKG_TRIPLET" \
-            -D Launcher_MSA_CLIENT_ID="$MSA_CLIENT_ID" -D Launcher_WARNINGS_AS_ERRORS=OFF
+            -D Launcher_WARNINGS_AS_ERRORS=OFF
 
       - name: Build
         run: |

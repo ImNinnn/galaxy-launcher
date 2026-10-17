@@ -90,8 +90,7 @@ modules:
       - -DLauncher_BUILD_PLATFORM=flatpak
       - -DLauncher_ENABLE_JAVA_DOWNLOADER=ON
       - -DBUILD_TESTING=OFF
-      # Microsoft sign-in needs your own Microsoft Entra application (client) ID; see flatpak/README.md:
-      # - -DLauncher_MSA_CLIENT_ID=<Azure application (client) ID>
+      # Microsoft sign-in uses Galaxy Launcher's own application ID (the default in CMakeLists.txt).
     sources:
       - type: dir
         path: ..

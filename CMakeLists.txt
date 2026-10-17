@@ -269,9 +269,9 @@ endif()
 
 # By using this key in your builds you accept the terms of use laid down in
 # https://docs.microsoft.com/en-us/legal/microsoft-identity-platform/terms-of-use
-# Galaxy Launcher: Prism's client ID must not be reused by a rebranded build. Supply your own with
-# -DLauncher_MSA_CLIENT_ID=... or set it at runtime in Settings > APIs.
-set(Launcher_MSA_CLIENT_ID "" CACHE STRING "Client ID you can get from Microsoft Identity Platform when you register an application")
+# Galaxy Launcher: its own Microsoft Entra application (personal Microsoft accounts, redirect URI http://localhost).
+# Forks should register their own and pass -DLauncher_MSA_CLIENT_ID=...; Settings > APIs can override it at runtime.
+set(Launcher_MSA_CLIENT_ID "f5fffe99-b7a7-475e-aeac-8bf4232a26be" CACHE STRING "Client ID you can get from Microsoft Identity Platform when you register an application")
 
 # By using this key in your builds you accept the terms and conditions laid down in
 # https://support.curseforge.com/en/support/solutions/articles/9000207405-curse-forge-3rd-party-api-terms-and-conditions

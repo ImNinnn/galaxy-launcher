@@ -32,18 +32,15 @@ For development, `dev.sh` builds incrementally inside the same SDK (`./dev.sh de
 
 ## Microsoft sign-in credentials
 
-Prism Launcher's build files ask rebranded builds not to reuse Prism's Microsoft (MSA) client ID, so the source
-ships **without** one. Without an MSA client ID, Microsoft accounts cannot be added and the game can only start in
-demo mode.
+Galaxy Launcher signs in with its own Microsoft Entra application; its client ID is the default of
+`Launcher_MSA_CLIENT_ID` in `CMakeLists.txt`. Sign-in opens the browser, and Microsoft sends it back to a page served
+by the launcher on `http://localhost:<port>/` (listening on 127.0.0.1 only).
 
 Galaxy Launcher uses **Modrinth only**: CurseForge is disabled everywhere (no pages, searches, update checks or API
 calls), even if a CurseForge key were configured.
 
-**Current state of this repository (personal build):** the manifest sets Prism Launcher's public MSA client ID as
-the build default so Microsoft sign-in works (the sign-in page shows "Prism Launcher"). Replace it with your own
-before publishing anything. The CMake default in the source stays empty.
-
-Provide your own, either at build time (the `-DLauncher_...` lines in the manifest's `config-opts`):
+A fork should register its own application and provide its client ID, either at build time (the `-DLauncher_...`
+lines in the manifest's `config-opts`):
 
 ```yaml
       - -DLauncher_MSA_CLIENT_ID=<Azure application (client) ID>
@@ -52,8 +49,9 @@ Provide your own, either at build time (the `-DLauncher_...` lines in the manife
 or at run time: *Add Microsoft* in the account manager walks through it the first time, and it can be changed in
 **Settings › APIs** (takes effect immediately).
 
-An MSA client ID comes from registering an application in Microsoft Entra ID (personal Microsoft accounts, public
-client/native, with the device code flow enabled) and requesting Minecraft API access from Mojang for it.
+An MSA client ID comes from registering an application in Microsoft Entra ID (personal Microsoft accounts, platform
+*Mobile and desktop applications* with the redirect URI `http://localhost`, public client flows enabled) and
+requesting Minecraft API access from Mojang for it.
 
 ## Permissions
 

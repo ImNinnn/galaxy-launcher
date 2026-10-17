@@ -24,14 +24,17 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QMouseEvent>
+#include <QNetworkReply>
 #include <QTabWidget>
-#include <QTreeView>
 #include <QTimer>
+#include <QTreeView>
+#include <QUrlQuery>
 
 #include <functional>
 #include <memory>
 
 #include "Application.h"
+#include "BuildConfig.h"
 #include "GalaxySettings.h"
 #include "GalaxyView.h"
 #include "MicrosoftLoginSetup.h"
@@ -40,6 +43,8 @@
 #include "launch/LaunchTask.h"
 #include "launch/LogModel.h"
 #include "minecraft/MinecraftInstance.h"
+#include "minecraft/auth/AccountData.h"
+#include "minecraft/auth/steps/MSAStep.h"
 #include "settings/SettingsObject.h"
 #include "ui/MainWindow.h"
 #include "ui/pages/instance/ExternalResourcesPage.h"
@@ -304,9 +309,59 @@ void runLaunchTest(MainWindow* window, GalaxyView* galaxy, const QString& direct
 
 }  // namespace
 
+namespace {
+/**
+ * GALAXY_DEV_LOGIN_TEST=1: starts a real Microsoft sign-in, reads the URL the browser would open, then plays
+ * Microsoft's part by sending "access denied" to the launcher's local redirect page. No browser, no account.
+ */
+void runLoginTest(QObject* context)
+{
+    auto data = std::make_shared<AccountData>();
+    auto step = makeShared<MSAStep>(data.get(), false);
+    auto checks = std::make_shared<QStringList>();
+    QObject::connect(step.get(), &MSAStep::authorizeWithBrowser, context, [context, checks](const QUrl& url) {
+        const QUrlQuery query(url);
+        const QUrl redirect(query.queryItemValue("redirect_uri", QUrl::FullyDecoded));
+        const auto clientId = query.queryItemValue("client_id");
+        qInfo() << "Login test: client" << clientId << "redirect" << redirect.toString();
+        if (clientId != BuildConfig.MSA_CLIENT_ID || clientId.isEmpty()) {
+            *checks << "client ID";
+        }
+        if (redirect.scheme() != "http" || redirect.host() != "localhost" || redirect.port() <= 0) {
+            *checks << "redirect URI";
+        }
+        QUrl back(redirect);
+        QUrlQuery result;
+        result.addQueryItem("error", "access_denied");
+        result.addQueryItem("error_description", "Login test");
+        result.addQueryItem("state", query.queryItemValue("state"));
+        back.setQuery(result);
+        auto* reply = APPLICATION->network()->get(QNetworkRequest(back));
+        QObject::connect(reply, &QNetworkReply::finished, context, [reply, checks] {
+            reply->deleteLater();
+            if (!reply->readAll().contains("Galaxy Launcher sign-in")) {
+                *checks << "local page (" + reply->errorString() + ")";
+            }
+        });
+    });
+    QObject::connect(step.get(), &AuthStep::finished, context, [step, data, checks](AccountTaskState state, QString message) {
+        // A refused sign-in must end the flow as a failure, after the page was served.
+        QTimer::singleShot(500, [state, message, checks] {
+            const bool failed = state == AccountTaskState::STATE_FAILED_HARD;
+            qInfo() << "Login test: the flow ended with" << message << (checks->isEmpty() && failed ? "PASSED" : "FAILED")
+                    << *checks;
+        });
+    });
+    step->perform();
+}
+}  // namespace
+
 void GalaxyDevTour::start(MainWindow* window, const QString& directory)
 {
     QDir().mkpath(directory);
+    if (qEnvironmentVariableIntValue("GALAXY_DEV_LOGIN_TEST") == 1) {
+        runLoginTest(window);
+    }
     if (const auto size = qEnvironmentVariable("GALAXY_DEV_WINDOW_SIZE").split('x'); size.size() == 2) {
         window->resize(size[0].toInt(), size[1].toInt());
     }

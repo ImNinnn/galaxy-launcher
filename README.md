@@ -79,8 +79,8 @@ Differences from Prism Launcher include:
   GitHub Actions with Prism Launcher's build setup.
 * How Galaxy Launcher is put together: [docs/galaxy/ARCHITECTURE.md](docs/galaxy/ARCHITECTURE.md).
 
-Signing in with a Microsoft account needs a Microsoft application (client) ID, which source builds do not include;
-see [Microsoft sign-in](docs/galaxy/README.md#microsoft-sign-in).
+Builds sign in with Galaxy Launcher's own Microsoft application. If you publish a fork, register your own; see
+[Microsoft sign-in](docs/galaxy/README.md#microsoft-sign-in).
 
 ## Credits
 

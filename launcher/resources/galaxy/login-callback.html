@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Galaxy Launcher sign-in</title>
+<!--
+  Galaxy Launcher: the page the launcher's local web server shows after Microsoft sends the browser back to it
+  (http://localhost:<port>/?code=… or ?error=…). Self-contained: no external files, fonts or requests.
+-->
+<style>
+  :root {
+    --space-1: #07061a;
+    --space-2: #120a2e;
+    --space-3: #24104a;
+    --text: #efeaff;
+    --muted: #b7acd9;
+    --accent: #a78bfa;
+    --accent-strong: #8b5cf6;
+    --ok: #86efac;
+    --error: #f85149;
+    --card: rgba(22, 14, 48, 0.78);
+    --card-edge: rgba(167, 139, 250, 0.28);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { height: 100%; margin: 0; }
+
+  body {
+    background: radial-gradient(ellipse at 30% 20%, var(--space-3) 0%, var(--space-2) 45%, var(--space-1) 100%);
+    background-color: var(--space-1);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, "Noto Sans", sans-serif;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    overflow: hidden;
+  }
+
+  /* Star field: two layers of tiny stars that drift slowly at different speeds. */
+  .stars, .stars::after {
+    position: fixed;
+    inset: -50%;
+    background-repeat: repeat;
+    pointer-events: none;
+  }
+  .stars {
+    background-image:
+      radial-gradient(1px 1px at 20px 30px, #fff8, transparent),
+      radial-gradient(1px 1px at 90px 140px, #fff6, transparent),
+      radial-gradient(1.5px 1.5px at 160px 60px, #fffa, transparent),
+      radial-gradient(1px 1px at 230px 190px, #dde4ff99, transparent),
+      radial-gradient(1px 1px at 300px 90px, #fff7, transparent),
+      radial-gradient(1.5px 1.5px at 370px 250px, #fff0e4aa, transparent);
+    background-size: 400px 300px;
+    animation: drift 160s linear infinite;
+  }
+  .stars::after {
+    content: "";
+    inset: 0;
+    background-image:
+      radial-gradient(2px 2px at 60px 210px, #fffc, transparent),
+      radial-gradient(1.5px 1.5px at 280px 40px, #e3e8ffcc, transparent),
+      radial-gradient(2px 2px at 420px 320px, #fff4e8bb, transparent);
+    background-size: 520px 420px;
+    animation: drift 90s linear infinite reverse;
+  }
+  @keyframes drift { to { transform: translate(200px, 120px); } }
+
+  .card {
+    position: relative;
+    width: min(440px, 100%);
+    padding: 36px 32px 30px;
+    border-radius: 20px;
+    background: var(--card);
+    border: 1px solid var(--card-edge);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(6px);
+    text-align: center;
+  }
+
+  /* A little solar system: a sun with a round planet circling it on a tilted ellipse, passing behind and in front. */
+  .system {
+    position: relative;
+    width: 150px;
+    height: 110px;
+    margin: 0 auto 22px;
+  }
+  .sun {
+    position: absolute;
+    left: calc(50% - 28px);
+    top: calc(50% - 28px);
+    width: 56px;
+    height: 56px;
+    z-index: 2;
+    border-radius: 50%;
+    background: radial-gradient(circle at 38% 34%, #fff 0%, var(--sun-core) 32%, var(--sun-edge) 78%);
+    box-shadow: 0 0 34px var(--sun-glow), 0 0 80px var(--sun-glow);
+    transition: background 0.6s, box-shadow 0.6s;
+  }
+  .tilt {
+    position: absolute;
+    inset: 0;
+    transform: rotate(-14deg);
+  }
+  /* The planet's own tilted layer, so its z-index can move it in front of or behind the sun. */
+  .tilt.planet-layer { animation: pz 6s step-end infinite; }
+  .orbit {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 140px;
+    height: 44px;
+    margin: -22px 0 0 -70px;
+    border-radius: 50%;
+    border: 1px dashed rgba(167, 139, 250, 0.38);
+  }
+  /* x and y swing a quarter turn apart, which traces the ellipse; z-index puts it behind the sun on the far side. */
+  .planet-x {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    animation: px 3s ease-in-out infinite alternate;
+  }
+  .planet-y { animation: py 3s ease-in-out -1.5s infinite alternate; }
+  .planet {
+    width: 14px;
+    height: 14px;
+    margin: -7px 0 0 -7px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #c7f9e4, #2fb88a 60%, #106b55);
+    box-shadow: 0 0 10px rgba(80, 220, 170, 0.6);
+  }
+  @keyframes px { from { transform: translateX(-70px); } to { transform: translateX(70px); } }
+  @keyframes py { from { transform: translateY(-22px); } to { transform: translateY(22px); } }
+  /* The near half of the orbit is the first half of the cycle; switch layers at its ends, far from the sun. */
+  @keyframes pz { 0% { z-index: 3; } 50% { z-index: 1; } 100% { z-index: 1; } }
+
+  .ok { --sun-core: #fde68a; --sun-edge: #f59e0b; --sun-glow: rgba(251, 191, 36, 0.45); }
+  .error { --sun-core: #fca5a5; --sun-edge: #dc2626; --sun-glow: rgba(248, 81, 73, 0.45); }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    margin-bottom: 14px;
+  }
+  .ok .badge { background: rgba(134, 239, 172, 0.12); color: var(--ok); border: 1px solid rgba(134, 239, 172, 0.3); }
+  .error .badge { background: rgba(248, 81, 73, 0.12); color: #ff8c84; border: 1px solid rgba(248, 81, 73, 0.35); }
+  .badge svg { width: 14px; height: 14px; }
+
+  h1 {
+    font-size: 26px;
+    line-height: 1.2;
+    margin: 0 0 10px;
+    font-weight: 700;
+  }
+  p {
+    margin: 0 auto;
+    max-width: 34ch;
+    color: var(--muted);
+    font-size: 15px;
+    line-height: 1.55;
+  }
+  .detail {
+    margin-top: 16px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.25);
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.45;
+    text-align: left;
+    word-break: break-word;
+  }
+  .detail:empty { display: none; }
+
+  footer {
+    margin-top: 26px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(167, 139, 250, 0.16);
+    font-size: 12.5px;
+    color: #8f84b5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  footer svg { width: 18px; height: 18px; flex: none; }
+
+  [hidden] { display: none !important; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .stars, .stars::after, .planet-x, .planet-y, .tilt.planet-layer { animation: none; }
+    .tilt.planet-layer { z-index: 3; }
+    .planet-x { transform: translateX(52px); }
+    .planet-y { transform: translateY(14px); }
+  }
+  @media (max-width: 380px) {
+    .card { padding: 28px 18px 22px; }
+    h1 { font-size: 22px; }
+  }
+</style>
+</head>
+<body>
+  <div class="stars" aria-hidden="true"></div>
+
+  <main class="card ok" id="card">
+    <div class="system" aria-hidden="true">
+      <div class="tilt"><div class="orbit"></div></div>
+      <div class="tilt planet-layer">
+        <div class="planet-x"><div class="planet-y"><div class="planet"></div></div></div>
+      </div>
+      <div class="sun"></div>
+    </div>
+
+    <!-- Signed in (also what shows without JavaScript). -->
+    <section id="success">
+      <div class="badge">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3 3 7-7"/></svg>
+        Signed in
+      </div>
+      <h1>You're all set!</h1>
+      <p>Your Microsoft account is connected. You can close this tab and go back to Galaxy Launcher.</p>
+    </section>
+
+    <!-- Microsoft sent back an error, or the sign-in was cancelled. -->
+    <section id="failure" hidden>
+      <div class="badge">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 4.5v4.5M8 11.6v.1"/></svg>
+        Sign-in not completed
+      </div>
+      <h1 id="failure-title">Something went wrong</h1>
+      <p>Close this tab, go back to Galaxy Launcher and try adding your account again.</p>
+      <div class="detail" id="failure-detail"></div>
+    </section>
+
+    <footer>
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <defs>
+          <radialGradient id="g" cx="40%" cy="35%" r="70%">
+            <stop offset="0" stop-color="#e9ddff"/><stop offset="0.5" stop-color="#8b5cf6"/><stop offset="1" stop-color="#3b1d82"/>
+          </radialGradient>
+        </defs>
+        <circle cx="16" cy="16" r="8" fill="url(#g)"/>
+        <ellipse cx="16" cy="16" rx="14" ry="4.5" fill="none" stroke="#c4b5fd" stroke-width="1.6" transform="rotate(-18 16 16)"/>
+      </svg>
+      Galaxy Launcher
+    </footer>
+  </main>
+
+<script>
+  (function () {
+    var params = new URLSearchParams(window.location.search);
+    var error = params.get("error");
+
+    // Do not leave the one-time sign-in code in the address bar or the browser history.
+    if (window.location.search && window.history && window.history.replaceState) {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+
+    if (!error) {
+      return;  // signed in
+    }
+
+    var card = document.getElementById("card");
+    card.classList.remove("ok");
+    card.classList.add("error");
+    document.getElementById("success").hidden = true;
+    document.getElementById("failure").hidden = false;
+
+    var titles = {
+      access_denied: "Sign-in was cancelled",
+      consent_required: "Permission was not granted",
+      interaction_required: "Microsoft needs more information",
+      temporarily_unavailable: "Microsoft is busy right now",
+      server_error: "Microsoft had a problem"
+    };
+    document.getElementById("failure-title").textContent = titles[error] || "Something went wrong";
+
+    // Shown as text, never as HTML.
+    var description = params.get("error_description");
+    document.getElementById("failure-detail").textContent = description ? description : "Error: " + error;
+  })();
+</script>
+</body>
+</html>

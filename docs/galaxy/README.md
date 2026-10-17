@@ -41,7 +41,7 @@ badge marks a profile that is playing.
 | Update everything | When a profile has updates, a red download arrow appears next to the search bar (and "Update All" in the list view): it lists every update with its changelog and installs the chosen ones together. Disabled content stays disabled |
 | Add content | **Add content** (bottom bar, Ctrl+Shift+D) opens the Discover window: browse Modrinth by type (mods, resource packs, shader packs, data packs), use the filters (Minecraft version, loader, categories, environment…), pick versions, then *Review and confirm*. Dependencies are added for you and nothing installs before you confirm. Right-clicking the base game planet opens it on a specific type. |
 | Find installed content | Type in the bottom search bar: matches are highlighted (in the galaxy, profiles containing a match), the count is shown, and Enter jumps from match to match |
-| Sign in with Microsoft | Sidebar › account button › Manage Accounts › Add Microsoft. The first time, a short setup asks for your own Microsoft application (client) ID (see below) |
+| Sign in with Microsoft | Sidebar › account button › Manage Accounts › Add Microsoft: your browser opens Microsoft's sign-in page, then returns to a Galaxy Launcher page on your computer |
 | Switch views | The button at the bottom right (Ctrl+L) |
 | Zoom and pan | Mouse wheel / + and −; drag, or arrow keys. Right-click empty space › Reset view |
 | Use the keyboard | Tab and Shift+Tab move between objects, Enter activates, the Menu key opens the context menu, Ctrl+F jumps to search |
@@ -88,10 +88,15 @@ other theme remains available.
 
 ## Microsoft sign-in
 
-Galaxy Launcher does not include a Microsoft application ID (Prism Launcher asks rebranded launchers not to reuse
-its own). Register one in Microsoft Entra (personal Microsoft accounts, *Allow public client flows* on), request
-Minecraft API access for it from Mojang, then enter its *Application (client) ID* when adding a Microsoft account or
-in Settings › APIs. It takes effect immediately.
+Galaxy Launcher signs in with its own Microsoft application. Your browser opens Microsoft's sign-in page; afterwards
+Microsoft sends it back to a small page the launcher serves on `http://localhost` (only reachable from your computer),
+which tells you whether it worked. Accounts added with an earlier build that used another application ID need to be
+added again.
+
+Forks should use their own application: register it in Microsoft Entra (personal Microsoft accounts, platform
+*Mobile and desktop applications* with the redirect URI `http://localhost`, *Allow public client flows* on), request
+Minecraft API access for it from Mojang, then build with `-DLauncher_MSA_CLIENT_ID=<client ID>` or enter it in
+Settings › APIs.
 
 ## For developers
 

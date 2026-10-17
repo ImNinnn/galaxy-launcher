@@ -38,67 +38,22 @@
 #include <QAbstractOAuth2>
 #include <QNetworkRequest>
 #include <QNetworkReply>
+#include <QFile>
+#include <QHostAddress>
 #include <QOAuthHttpServerReplyHandler>
-#include <QOAuthOobReplyHandler>
 
 #include "Application.h"
 #include "BuildConfig.h"
 #include "FileSystem.h"
 
-#include <QProcess>
-#include <QSettings>
-#include <QStandardPaths>
-
-bool isSchemeHandlerRegistered()
-{
-#ifdef Q_OS_LINUX
-    QProcess process;
-    process.start("xdg-mime", { "query", "default", "x-scheme-handler/" + BuildConfig.LAUNCHER_APP_BINARY_NAME });
-    process.waitForFinished();
-    QString output = process.readAllStandardOutput().trimmed();
-
-    return output.contains(APPLICATION->desktopFileName());
-
-#elif defined(Q_OS_WIN)
-    QString regPath = QString("HKEY_CURRENT_USER\\Software\\Classes\\%1").arg(BuildConfig.LAUNCHER_APP_BINARY_NAME);
-    QSettings settings(regPath, QSettings::NativeFormat);
-
-    const QString registeredRunCommand = settings.value("shell/open/command/.").toString().replace("\\", "/");
-    return registeredRunCommand.contains(QCoreApplication::applicationFilePath());
-#endif
-    return true;
-}
-
-class CustomOAuthOobReplyHandler : public QOAuthOobReplyHandler {
-    Q_OBJECT
-
-   public:
-    explicit CustomOAuthOobReplyHandler(QObject* parent = nullptr) : QOAuthOobReplyHandler(parent)
-    {
-        connect(APPLICATION, &Application::oauthReplyRecieved, this, &QOAuthOobReplyHandler::callbackReceived);
-    }
-    ~CustomOAuthOobReplyHandler() override
-    {
-        disconnect(APPLICATION, &Application::oauthReplyRecieved, this, &QOAuthOobReplyHandler::callbackReceived);
-    }
-    QString callback() const override { return BuildConfig.LAUNCHER_APP_BINARY_NAME + "://oauth/microsoft"; }
-
-   protected:
-    void networkReplyFinished(QNetworkReply* reply) override
-    {
-        if (reply->error() != QNetworkReply::NoError) {
-            qWarning() << "OAuth2 request failed:" << reply->readAll();
-        }
-
-        QOAuthOobReplyHandler::networkReplyFinished(reply);
-    }
-};
-
 class LoggingOAuthHttpServerReplyHandler final : public QOAuthHttpServerReplyHandler {
     Q_OBJECT
 
    public:
-    explicit LoggingOAuthHttpServerReplyHandler(QObject* parent = nullptr) : QOAuthHttpServerReplyHandler(parent) {}
+    // Galaxy Launcher: only reachable from this computer (the redirect carries a one-time sign-in code).
+    explicit LoggingOAuthHttpServerReplyHandler(QObject* parent = nullptr)
+        : QOAuthHttpServerReplyHandler(QHostAddress::LocalHost, 0, parent)
+    {}
 
    protected:
     void networkReplyFinished(QNetworkReply* reply) override
@@ -114,24 +69,16 @@ class LoggingOAuthHttpServerReplyHandler final : public QOAuthHttpServerReplyHan
 MSAStep::MSAStep(AccountData* data, bool silent) : AuthStep(data), m_silent(silent)
 {
     m_clientId = APPLICATION->getMSAClientID();
-    if (QCoreApplication::applicationFilePath().startsWith("/tmp/.mount_") || APPLICATION->isPortable() || !isSchemeHandlerRegistered())
-
-    {
-        auto replyHandler = new LoggingOAuthHttpServerReplyHandler(this);
-        replyHandler->setCallbackText(QString(R"XXX(
-    <noscript>
-      <meta http-equiv="Refresh" content="0; URL=%1" />
-    </noscript>
-    Login Successful, redirecting...
-    <script>
-      window.location.replace("%1");
-    </script>
-    )XXX")
-                                          .arg(BuildConfig.LOGIN_CALLBACK_URL));
-        m_oauth2.setReplyHandler(replyHandler);
-    } else {
-        m_oauth2.setReplyHandler(new CustomOAuthOobReplyHandler(this));
+    // Galaxy Launcher: always sign in through the browser and a local page (http://localhost:<port>/), the redirect
+    // URI registered for the launcher's Microsoft application. The page reads the result from its own address, so it
+    // shows success or the error Microsoft sent back.
+    auto replyHandler = new LoggingOAuthHttpServerReplyHandler(this);
+    replyHandler->setCallbackHost(QStringLiteral("localhost"));
+    QFile page(QStringLiteral(":/galaxy/login-callback.html"));
+    if (page.open(QIODevice::ReadOnly)) {
+        replyHandler->setCallbackText(QString::fromUtf8(page.readAll()));
     }
+    m_oauth2.setReplyHandler(replyHandler);
     m_oauth2.setAuthorizationUrl(QUrl("https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize"));
     m_oauth2.setAccessTokenUrl(QUrl("https://login.microsoftonline.com/consumers/oauth2/v2.0/token"));
     m_oauth2.setScope("XboxLive.SignIn XboxLive.offline_access");

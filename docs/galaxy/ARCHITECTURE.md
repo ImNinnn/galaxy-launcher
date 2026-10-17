@@ -53,6 +53,9 @@ All new code lives in `launcher/ui/galaxy/` unless noted.
 * `Application::updateCapabilities()` never enables CurseForge; `ResourceUpdateDialog` skips CurseForge resources
   and never falls back to CurseForge; the CurseForge key field, the CurseForge export and the `curseforge://` handler
   are hidden or removed.
+* `MSAStep` always signs in through the browser with a local redirect page: `QOAuthHttpServerReplyHandler` listens on
+  127.0.0.1 only, advertises `http://localhost:<port>/` (the redirect URI registered for Galaxy Launcher's Entra
+  application) and serves `resources/galaxy/login-callback.html`, which shows success or Microsoft's error.
 * `ResourceFolderModel::s_updateLookup` + `ProxyModel::data()` color the names of resources with updates;
   `ResourceFolderModel::isUpdating()` lets the update check wait until a folder has loaded.
 * `MainWindow` uses a frameless window: `GalaxyTopBar` has window buttons and starts a system move on drag; an
