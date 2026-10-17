@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <radialGradient id="space" cx="0.42" cy="0.38" r="0.75">
+      <stop offset="0" stop-color="#2a1650"/>
+      <stop offset="0.6" stop-color="#140b2e"/>
+      <stop offset="1" stop-color="#07061a"/>
+    </radialGradient>
+    <radialGradient id="planet" cx="0.36" cy="0.32" r="0.78">
+      <stop offset="0" stop-color="#e6d4ff"/>
+      <stop offset="0.28" stop-color="#a77bff"/>
+      <stop offset="0.68" stop-color="#6232d6"/>
+      <stop offset="1" stop-color="#22105a"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#b48cff" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#b48cff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f3e9ff" stop-opacity="0.15"/>
+      <stop offset="0.5" stop-color="#f3e9ff" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#f3e9ff" stop-opacity="0.2"/>
+    </linearGradient>
+    <clipPath id="planetClip"><circle cx="128" cy="128" r="62"/></clipPath>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#space)"/>
+  <g fill="#ffffff">
+    <circle cx="52" cy="58" r="2.2" opacity="0.9"/>
+    <circle cx="198" cy="48" r="1.6" opacity="0.7"/>
+    <circle cx="210" cy="190" r="2" opacity="0.8"/>
+    <circle cx="40" cy="176" r="1.4" opacity="0.6"/>
+    <circle cx="88" cy="214" r="1.2" opacity="0.5"/>
+    <circle cx="176" cy="92" r="1.1" opacity="0.5"/>
+  </g>
+  <circle cx="128" cy="128" r="100" fill="url(#glow)"/>
+  <!-- back half of the ring -->
+  <ellipse cx="128" cy="128" rx="104" ry="30" transform="rotate(-18 128 128)" fill="none" stroke="url(#ring)" stroke-width="7" opacity="0.55"/>
+  <circle cx="128" cy="128" r="62" fill="url(#planet)"/>
+  <g clip-path="url(#planetClip)" opacity="0.22" fill="#ffffff">
+    <ellipse cx="120" cy="104" rx="80" ry="6"/>
+    <ellipse cx="128" cy="134" rx="80" ry="4"/>
+    <ellipse cx="136" cy="160" rx="80" ry="7"/>
+  </g>
+  <!-- front half of the ring drawn over the planet -->
+  <path d="M 29.1 160.2 A 104 30 -18 0 0 226.9 95.8" transform="" fill="none" stroke="url(#ring)" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="186" cy="70" r="9" fill="#fff6d6"/>
+  <circle cx="186" cy="70" r="18" fill="#fff1b8" opacity="0.25"/>
+</svg>

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop">
+  <id>@Launcher_AppID@</id>
+  <name>Galaxy Launcher</name>
+  <summary>Explore and manage your Minecraft profiles as a galaxy of solar systems</summary>
+  <developer id="io.github.galaxylauncher">
+    <name>Galaxy Launcher Contributors</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <description>
+    <p>Galaxy Launcher is a Minecraft launcher built on Prism Launcher. Every Minecraft profile is a solar system: its sun launches the game, its installed mods are planets, resource and data packs are moons, and shader packs are rings.</p>
+    <p>Features:</p>
+    <ul>
+      <li>An interactive, angled 2.5D galaxy generated from your real installations</li>
+      <li>Planet, moon and ring sizes that reflect the size of the installed content</li>
+      <li>Custom sun colors for every profile</li>
+      <li>Search Modrinth and CurseForge and install mods, packs and shaders</li>
+      <li>A conventional list view of the same profiles and content</li>
+      <li>Everything Prism Launcher provides: mod loaders, modpacks, accounts, Java management and instance isolation</li>
+    </ul>
+  </description>
+  <releases>
+    <release version="@Launcher_VERSION_NAME@" date="@Launcher_BUILD_TIMESTAMP@"></release>
+  </releases>
+  <url type="vcs-browser">https://github.com/PrismLauncher/PrismLauncher</url>
+  <content_rating type="oars-1.1">
+    <content_attribute id="violence-fantasy">moderate</content_attribute>
+    <content_attribute id="social-chat">intense</content_attribute>
+  </content_rating>
+  <launchable type="desktop-id">@Launcher_AppID@.desktop</launchable>
+</component>

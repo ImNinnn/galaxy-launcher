@@ -1,0 +1,93 @@
+name: Galaxy Launcher (Windows installer)
+
+# Builds GalaxyLauncher-Setup.exe for 64-bit Windows with Prism's own dependency setup and NSIS script.
+# Microsoft sign-in uses the repository variable MSA_CLIENT_ID (your own Microsoft Entra application ID), if set.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows installer
+    runs-on: windows-2022
+
+    env:
+      ARTIFACT_NAME: Windows-MSVC-Qt6
+      BUILD_PLATFORM: galaxy
+      BUILD_TYPE: Release
+      CMAKE_PRESET: windows_msvc
+      MSA_CLIENT_ID: ${{ vars.MSA_CLIENT_ID }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-dependencies
+        with:
+          build-type: ${{ env.BUILD_TYPE }}
+          artifact-name: Windows-MSVC
+          vcvars-arch: amd64
+          qt-version: 6.11.2
+
+      - name: Configure
+        run: |
+          cmake --preset "$CMAKE_PRESET" -D VCPKG_HOST_TRIPLET="$VCPKG_TRIPLET" -D VCPKG_TARGET_TRIPLET="$VCPKG_TRIPLET" \
+            -D Launcher_MSA_CLIENT_ID="$MSA_CLIENT_ID" -D Launcher_WARNINGS_AS_ERRORS=OFF
+
+      - name: Build
+        run: |
+          cmake --build --preset "$CMAKE_PRESET" --config "$BUILD_TYPE"
+
+      - name: Run tests
+        continue-on-error: true
+        run: |
+          ctest --preset "$CMAKE_PRESET" --build-config "$BUILD_TYPE"
+
+      - name: Install
+        run: |
+          cmake --install build --config "$BUILD_TYPE"
+
+      - name: Build the installer
+        shell: pwsh
+        env:
+          NSCURL_VERSION: "v24.9.26.122"
+          NSCURL_SHA256: "AEE6C4BE3CB6455858E9C1EE4B3AFE0DB9960FA03FE99CCDEDC28390D57CCBB0"
+        run: |
+          # NScurl lets the installer fetch the Visual C++ runtime, as Prism's installer does.
+          New-Item -Name NSISPlugins -ItemType Directory
+          Invoke-Webrequest https://github.com/negrutiu/nsis-nscurl/releases/download/"$env:NSCURL_VERSION"/NScurl.zip -OutFile NSISPlugins\NScurl.zip
+          $hash = Get-FileHash NSISPlugins\NScurl.zip -Algorithm Sha256 | Select-Object -ExpandProperty Hash
+          if ($hash -ne $env:NSCURL_SHA256) {
+            echo "::error:: NScurl.zip sha256 mismatch"
+            exit 1
+          }
+          Expand-Archive -Path NSISPlugins\NScurl.zip -DestinationPath NSISPlugins\NScurl
+          cd install
+          makensis -NOCD "${{ github.workspace }}/build/program_info/win_install.nsi"
+
+      - name: Upload the installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: GalaxyLauncher-Setup
+          path: GalaxyLauncher-Setup.exe
+          if-no-files-found: error
+
+      - name: Upload the portable folder
+        uses: actions/upload-artifact@v7
+        with:
+          name: GalaxyLauncher-Windows-files
+          path: install/**

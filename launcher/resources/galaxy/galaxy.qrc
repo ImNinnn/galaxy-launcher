@@ -1,0 +1,7 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/galaxy">
+        <file>check.svg</file>
+        <file>dot.svg</file>
+    </qresource>
+</RCC>

@@ -1,0 +1,106 @@
+id: io.github.galaxylauncher.GalaxyLauncher
+# Prism Launcher (and therefore Galaxy Launcher) is a Qt 6 Widgets application; the KDE runtime provides Qt 6.10,
+# libarchive, libqrencode, gamemode and Qt NetworkAuth.
+runtime: org.kde.Platform
+runtime-version: '6.10'
+sdk: org.kde.Sdk
+sdk-extensions:
+  # Only needed at build time to compile the launcher's Java helpers (JavaCheck.jar, NewLaunch.jar).
+  # Java runtimes for Minecraft are downloaded by the launcher into its own data directory at run time.
+  - org.freedesktop.Sdk.Extension.openjdk17
+command: galaxylauncher
+
+finish-args:
+  # Display. The launcher UI uses Wayland when available; Minecraft's bundled GLFW uses X11 (XWayland) even on
+  # Wayland sessions, so the X11 socket is required rather than a fallback.
+  - --share=ipc
+  - --socket=wayland
+  - --socket=x11
+  # GPU access for the game (includes NVIDIA device nodes).
+  - --device=dri
+  # Game controllers for controller mods.
+  - --device=input
+  # Game audio and in-game voice chat mods.
+  - --socket=pulseaudio
+  # Accounts, meta data, mod platforms, multiplayer.
+  - --share=network
+  # Discord Rich Presence: Discord's IPC socket (native Discord, and the Discord Flatpak).
+  - --filesystem=xdg-run/discord-ipc-0
+  - --filesystem=xdg-run/app/com.discordapp.Discord:create
+
+modules:
+  - name: cmark
+    buildsystem: cmake-ninja
+    builddir: true
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DBUILD_TESTING=OFF
+      - -DCMARK_TESTS=OFF
+    cleanup:
+      - /bin
+      - /share/man
+    sources:
+      - type: archive
+        url: https://github.com/commonmark/cmark/archive/0.31.2.tar.gz
+        sha256: f9bc5ca38bcb0b727f0056100fac4d743e768872e3bacec7746de28f5700d697
+
+  - name: tomlplusplus
+    buildsystem: cmake-ninja
+    builddir: true
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+    sources:
+      - type: archive
+        url: https://github.com/marzer/tomlplusplus/archive/v3.4.0.tar.gz
+        sha256: 8517f65938a4faae9ccf8ebb36631a38c1cadfb5efa85d9a72e15b9e97d25155
+
+  # Text to speech for Minecraft's narrator (an accessibility feature); the game loads libflite at run time.
+  - name: flite
+    buildsystem: autotools
+    config-opts:
+      - --enable-shared
+      - --with-audio=pulseaudio
+    no-parallel-make: true
+    cleanup:
+      - /bin
+      - /include
+      - '*.a'
+    sources:
+      - type: git
+        url: https://github.com/festvox/flite.git
+        commit: e9e2e37c329dbe98bfeb27a1828ef9a71fa84f88
+
+  # Minecraft versions using LWJGL 2 (before 1.13) query display modes through the xrandr binary.
+  - name: xrandr
+    buildsystem: autotools
+    sources:
+      - type: archive
+        url: https://xorg.freedesktop.org/archive/individual/app/xrandr-1.5.4.tar.xz
+        sha256: 2cafccb2aaf2491a4068676117a0d4f90ab307724b96fffc54cd1da953779400
+
+  - name: galaxylauncher
+    buildsystem: cmake-ninja
+    builddir: true
+    build-options:
+      append-path: /usr/lib/sdk/openjdk17/bin
+      env:
+        JAVA_HOME: /usr/lib/sdk/openjdk17/jvm/openjdk-17
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=RelWithDebInfo
+      - -DLauncher_BUILD_PLATFORM=flatpak
+      - -DLauncher_ENABLE_JAVA_DOWNLOADER=ON
+      - -DBUILD_TESTING=OFF
+      # Microsoft sign-in needs your own Microsoft Entra application (client) ID; see flatpak/README.md:
+      # - -DLauncher_MSA_CLIENT_ID=<Azure application (client) ID>
+    sources:
+      - type: dir
+        path: ..
+        skip:
+          - .git
+          - flatpak/.flatpak-builder
+          - flatpak/build-dir
+          - flatpak/release-build
+          - flatpak/dev-build
+          - flatpak/dev-data
+          - flatpak/repo
+          - build
