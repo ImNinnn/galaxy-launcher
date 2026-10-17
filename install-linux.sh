@@ -11,7 +11,7 @@ set -euo pipefail
 
 REPO="ImNinnn/galaxy-launcher"
 APP_ID="io.github.galaxylauncher.GalaxyLauncher"
-BUNDLE_URL="https://github.com/${REPO}/releases/latest/download/GalaxyLauncher.flatpak"
+BUNDLE_NAME="GalaxyLauncher.flatpak"
 
 if ! command -v flatpak >/dev/null 2>&1; then
     echo "Galaxy Launcher needs Flatpak. Set it up for your distribution first: https://flatpak.org/setup/" >&2
@@ -29,11 +29,20 @@ flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/fl
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-echo "Downloading the latest Galaxy Launcher..."
-curl -fL --progress-bar -o "$tmp/GalaxyLauncher.flatpak" "$BUNDLE_URL"
+# The newest release that has a Flatpak bundle, preview releases included (GitHub's "latest" skips those).
+echo "Looking for the newest release..."
+bundle_url="$(curl -fsSL -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/releases?per_page=20" |
+    grep -o "\"browser_download_url\": *\"[^\"]*/${BUNDLE_NAME}\"" | head -n 1 | sed 's/.*"\(https:[^"]*\)"$/\1/' || true)"
+if [ -z "$bundle_url" ]; then
+    echo "Could not find a Galaxy Launcher release with a Flatpak bundle at https://github.com/${REPO}/releases" >&2
+    exit 1
+fi
+
+echo "Downloading ${bundle_url##*/download/}..."
+curl -fL --progress-bar -o "$tmp/${BUNDLE_NAME}" "$bundle_url"
 
 echo "Installing..."
-flatpak install --user --noninteractive --reinstall "$tmp/GalaxyLauncher.flatpak"
+flatpak install --user --noninteractive --reinstall "$tmp/${BUNDLE_NAME}"
 
 echo
 echo "Galaxy Launcher is installed. Start it from your applications menu, or run:"
