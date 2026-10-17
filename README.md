@@ -25,7 +25,7 @@ every action (installing, updating, launching, accounts) goes through Prism Laun
 
 ### Windows
 
-Download **[GalaxyLauncher-Setup.exe](https://github.com/ImNinnn/galaxy-launcher/releases/latest/download/GalaxyLauncher-Setup.exe)**
+Download **[GalaxyLauncher-Setup.exe](https://github.com/ImNinnn/galaxy-launcher/releases/latest/)**
 and run it. It installs for your user only (no administrator rights needed) and adds a Start menu shortcut.
 
 The installer is not code-signed yet, so Windows SmartScreen may warn you: choose **More info › Run anyway**.
@@ -38,7 +38,7 @@ Run this in a terminal (no root needed; it also updates an existing installation
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/ImNinnn/galaxy-launcher/main/install-linux.sh)"
 ```
 
-Or download **[GalaxyLauncher.flatpak](https://github.com/ImNinnn/galaxy-launcher/releases/latest/download/GalaxyLauncher.flatpak)**
+Or download **[GalaxyLauncher.flatpak](https://github.com/ImNinnn/galaxy-launcher/releases/latest/)**
 and install it with:
 
 ```sh
