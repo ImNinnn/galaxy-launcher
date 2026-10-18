@@ -323,11 +323,14 @@ void runLoginTest(QObject* context)
         const QUrlQuery query(url);
         const QUrl redirect(query.queryItemValue("redirect_uri", QUrl::FullyDecoded));
         const auto clientId = query.queryItemValue("client_id");
-        qInfo() << "Login test: client" << clientId << "redirect" << redirect.toString();
-        if (clientId != BuildConfig.MSA_CLIENT_ID || clientId.isEmpty()) {
+        qInfo() << "Login test: client" << clientId << "redirect" << redirect.toString() << "override"
+                << APPLICATION->settings()->get("MSAClientIDOverride").toString() << "built in" << BuildConfig.MSA_CLIENT_ID;
+        if (clientId != APPLICATION->getMSAClientID() || clientId.isEmpty()) {
             *checks << "client ID";
         }
-        if (redirect.scheme() != "http" || redirect.host() != "localhost" || redirect.port() <= 0) {
+        // The built-in application is registered for localhost; an override uses Prism Launcher's 127.0.0.1.
+        const QString host = clientId == BuildConfig.MSA_CLIENT_ID ? "localhost" : "127.0.0.1";
+        if (redirect.scheme() != "http" || redirect.host() != host || redirect.port() <= 0) {
             *checks << "redirect URI";
         }
         QUrl back(redirect);
@@ -503,6 +506,11 @@ void GalaxyDevTour::start(MainWindow* window, const QString& directory)
                   about.exec();
               });
               captureBlocking(QDir(directory).filePath("30-services-settings.png"), [window] { APPLICATION->ShowGlobalSettings(window, "apis"); });
+              // Shown when GitHub has a newer release (GALAXY_DEV_FAKE_VERSION pretends this one is old).
+              if (window->m_launcherUpdateButton && window->m_launcherUpdateButton->isVisible()) {
+                  window->grab().save(QDir(directory).filePath("34-launcher-update-button.png"));
+                  captureBlocking(QDir(directory).filePath("35-launcher-update.png"), [window] { window->m_launcherUpdateAction->trigger(); });
+              }
               captureBlocking(QDir(directory).filePath("31-general-settings.png"),
                               [window] { APPLICATION->ShowGlobalSettings(window, "launcher-settings"); });
           },

@@ -17,7 +17,7 @@ through. Everything shown is read from your real installations, and every action
 Your profiles orbit a black hole at the centre of the galaxy. Click it to launch your last played profile: it sends
 a beam to that system, then the usual launch plays. Right-click it to choose another profile to launch (also in
 Settings › Galaxy), rename it or centre the view. Inside a system, the black hole or another of your profiles now and
-then drifts by far in the background. Whatever you point at stops moving (a planet, a moon or ring with its planet, or a profile while the rest of
+then drifts by far in the background, drawn the way the galaxy shows it. Whatever you point at stops moving (a planet, a moon or ring with its planet, or a profile while the rest of
 the galaxy keeps turning), so it is easy to read and click.
 
 At most three planets share an orbit, so planets stay well apart; large profiles get more orbits and open framed on
@@ -52,7 +52,8 @@ badge marks a profile that is playing.
 
 Launching plays a short sequence: the system collapses into its sun, and the sun explodes into a nebula in which
 your mods, packs and shaders float as sparkles while you play (their names fade out when you press Launch; point
-at a sparkle to see which one it is). When the game stops, the sparkles fly back to their orbits, the nebula
+at a sparkle to see which one it is). Disabled content stays out of it: it moves away from the sun to one shared
+orbit further out and circles there while you play. When the game stops, the sparkles fly back to their orbits, the nebula
 condenses into the sun again and the names fade back in. It is purely cosmetic: it never touches your files and the game
 starts right away through Prism's normal launch (accounts, Java, mod loaders, errors).
 
@@ -76,6 +77,12 @@ opens the same menu as in the galaxy, and *Update* brings the selected project t
 A new installation starts with an empty galaxy and buttons to create or import a profile.
 
 ![Empty galaxy](screenshots/empty-galaxy.jpg)
+
+## Updating Galaxy Launcher
+
+At startup, Galaxy Launcher checks its GitHub releases. When a newer version exists, a red download arrow appears
+right of the help (?) button: it shows what is new and how to update (the new installer on Windows, a one-line
+command on Linux). Your profiles, accounts and settings are kept. The check can be turned off in Settings › Galaxy.
 
 ## Settings
 

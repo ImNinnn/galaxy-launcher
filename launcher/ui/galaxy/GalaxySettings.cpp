@@ -39,6 +39,7 @@ void registerSettings(SettingsObject* settings)
     settings->registerSetting(DiscoverGeometry, QString());
     settings->registerSetting(BlackHoleName, QString());
     settings->registerSetting(BlackHoleProfile, QString());
+    settings->registerSetting(LauncherUpdates, true);
     settings->registerSetting(UpdateChecks, true);
     settings->registerSetting(SystemTitleBar, false);
     settings->registerSetting(DiscordPresence, true);

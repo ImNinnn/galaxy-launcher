@@ -1474,8 +1474,9 @@ void GalaxyView::updatePasser(qreal t)
         m_nextPass = -1;
         return;
     }
-    // GALAXY_DEV_PASSER=1 (developer tooling): one passes right away, quickly.
-    static const bool devPasser = qEnvironmentVariableIntValue("GALAXY_DEV_PASSER") == 1;
+    // GALAXY_DEV_PASSER=1 (developer tooling): one passes right away, quickly; =2 always another profile.
+    static const int devPasserMode = qEnvironmentVariableIntValue("GALAXY_DEV_PASSER");
+    static const bool devPasser = devPasserMode > 0;
     if (m_passer && t - m_passer->start > m_passer->duration) {
         m_passer.reset();
     }
@@ -1493,7 +1494,7 @@ void GalaxyView::updatePasser(qreal t)
         }
     }
     Passer passer;
-    if (!others.isEmpty() && rand01(seed) > 0.35) {
+    if (!others.isEmpty() && (devPasserMode == 2 || rand01(seed) > 0.35)) {
         passer.systemId = others.at(static_cast<int>(rand01(seed ^ 0x9e3779b9U) * others.size()) % others.size());
     }
     passer.start = t;
@@ -1521,41 +1522,18 @@ void GalaxyView::paintPasser(QPainter& p, qreal alpha)
     const qreal opacity = alpha * 0.6 * smoothstep(0, 0.08, u) * (1 - smoothstep(0.92, 1, u));
     const int q = std::min(quality(), 1);
     if (passer.systemId.isEmpty()) {
-        CelestialPainter::drawBlackHole(p, at, passer.size, -m_driftTime * 6.0, q, opacity);
+        // At the same scale as a passing profile, like in the galaxy.
+        CelestialPainter::drawBlackHole(p, at, GalaxyLayout::BlackHoleRadius * passer.size * 1.35, -m_driftTime * 6.0, q, opacity);
         return;
     }
     const int index = systemIndexOf(passer.systemId);
     if (index < 0) {
         return;
     }
-    const auto& node = m_systems[index];
-    const qreal r = passer.size * 0.4;
-    // A few planets circle its sun on tilted orbits.
-    const int planets = 2 + static_cast<int>(stableHash(node.id) % 3);
-    QList<std::pair<QPointF, qreal>> front;
-    for (int i = 0; i < planets; i++) {
-        const qreal orbit = r * (2.0 + i * 1.1);
-        const qreal angle = m_driftTime * (0.5 - i * 0.12) + i * 2.1;
-        const QPointF pos = at + QPointF(std::cos(angle) * orbit, std::sin(angle) * orbit * TiltSin);
-        if (std::sin(angle) < 0) {
-            p.save();
-            p.setOpacity(p.opacity() * opacity);
-            p.setPen(Qt::NoPen);
-            p.setBrush(QColor(190, 180, 230));
-            p.drawEllipse(pos, 1.6, 1.6);
-            p.restore();
-        } else {
-            front.append({ pos, 1.8 });
-        }
-    }
-    CelestialPainter::drawSun(p, at, r, node.color, 1.0, q, opacity);
+    // Drawn the way the galaxy shows it, only small and far away.
     p.save();
     p.setOpacity(p.opacity() * opacity);
-    p.setPen(Qt::NoPen);
-    p.setBrush(QColor(210, 200, 245));
-    for (const auto& [pos, radius] : front) {
-        p.drawEllipse(pos, radius, radius);
-    }
+    paintMiniSystem(p, index, at, passer.size * 1.35, -1, false);
     p.restore();
 }
 
@@ -1752,7 +1730,6 @@ void GalaxyView::paintGalaxyLayer(QPainter& p, qreal fade)
         const bool focused = m_focus == Hit{ HitType::System, i };
         const bool selected = node.id == m_selectedId;
         const qreal launchT = node.id == m_launchId && m_launchStart >= 0 ? t - m_launchStart : -1;
-        const auto [sunIntensity, sunScale] = launchSun(launchT, m_reducedMotion);
 
         p.save();
         p.setOpacity(alpha);
@@ -1766,125 +1743,7 @@ void GalaxyView::paintGalaxyLayer(QPainter& p, qreal fade)
             p.drawEllipse(c, rx, rx * TiltSin);
         }
 
-        // Overview orbits and planets: the largest installed mods, as a summary.
-        const auto& summary = node.summary;
-        const int planets = static_cast<int>(summary.planetSizes.size());
-        // Same rule as inside a system: at most three planets per orbit.
-        constexpr int overviewOrbits = 4;
-        const qreal orbitRadii[overviewOrbits] = { 0.52, 0.72, 0.92, 1.12 };
-        constexpr int perOrbit = GalaxyLayout::MaxPlanetsPerOrbit;
-        if (m_showOrbits && q >= 1) {
-            for (int k = 0; k < overviewOrbits && k * perOrbit < planets + 1; k++) {
-                CelestialPainter::drawOrbit(p, c, orbitRadii[k] * zoom, orbitRadii[k] * zoom * TiltSin, OrbitColor, 0.13);
-            }
-        }
-
-        struct Mini {
-            qreal depth;
-            QPointF at;
-            qreal r;
-            CelestialPainter::SurfaceStyle style;
-            QPointF light;
-            qreal facing;
-            int ring;  // 1 = draw a shader ring around it
-            QString key;
-            qreal sparkle = 0;
-        };
-        QList<Mini> minis;
-        const auto nebula = nebulaMix(node.id);
-        const qreal nebulaAmount = nebula.amount();
-        if (nebula.active()) {
-            const qreal grow = nebula.reform > 0 ? 1 - 0.85 * easeInOut(nebula.reform) : 0.25 + 0.75 * easeOut(nebula.form);
-            CelestialPainter::drawNebula(p, c, GalaxyLayout::OverviewRadius * 0.95 * zoom * grow, node.color, m_driftTime + m_orbitTime,
-                                         stableHash(node.id), q, nebulaAmount);
-        }
-        int slot = 0;
-        // Slot 0: the base game planet, hosting packs and shaders.
-        QList<std::pair<qint64, QString>> items;
-        items.append({ -2, QString() });
-        for (int k = 0; k < planets; k++) {
-            items.append({ summary.planetSizes[k], summary.planetKeys[k] });
-        }
-        for (const auto& [bytes, key] : items) {
-            const int orbit = std::min(slot / perOrbit, overviewOrbits - 1);
-            const int index = slot - orbit * perOrbit;
-            const int onOrbit = std::min(perOrbit, static_cast<int>(items.size()) - orbit * perOrbit);
-            const qreal speed = 0.11 * std::pow(orbitRadii[0] / orbitRadii[orbit], 1.5);
-            const qreal angle = orbit * 2.4 + 2 * M_PI * index / std::max(1, onOrbit) + speed * (m_orbitTime - node.paused);
-            qreal radius = orbitRadii[orbit];
-            const auto pull = launchPull(launchT >= 0 && !m_reducedMotion ? launchT : -1, radius / orbitRadii[overviewOrbits - 1]);
-            radius *= 1 - pull.pull;
-            qreal x = radius * std::cos(angle);
-            qreal z = radius * std::sin(angle);
-            Mini mini;
-            mini.key = node.id + '/' + key;
-            if (nebula.active()) {
-                const QPointF orbitPos(x, z);
-                const QPointF spot = sparklePosition(mini.key, GalaxyLayout::OverviewRadius * 0.85);
-                const QPointF at = nebula.reform > 0 ? spot + (orbitPos - spot) * easeInOut(nebula.reform)
-                                                     : (nebula.fromSun ? QPointF() : orbitPos) +
-                                                           (spot - (nebula.fromSun ? QPointF() : orbitPos)) * easeOut(nebula.form);
-                x = at.x();
-                z = at.y();
-                mini.sparkle = nebulaAmount;
-            }
-            mini.depth = z;
-            mini.at = c + QPointF(x * zoom, z * TiltSin * zoom);
-            const bool base = bytes == -2;
-            const qreal size = base ? 0.11 : 0.04 + 0.07 * GalaxyLayout::sizeFraction(bytes, GalaxyLayout::PlanetMinBytes,
-                                                                                      GalaxyLayout::PlanetMaxBytes);
-            mini.r = std::max(1.4, size * m_objectScale * zoom * pull.scale);
-            mini.style = base ? CelestialPainter::baseGameStyle() : CelestialPainter::styleForKey(styleKey(key), false);
-            const qreal len = std::max(1e-6, std::hypot(x, z));
-            mini.light = QPointF(-x / len, (-z / len) * TiltSin - 0.35 * TiltCos);
-            mini.facing = (-z / len) * TiltCos + 0.35 * TiltSin;
-            mini.ring = base && summary.shaders > 0 ? 1 : 0;
-            if (pull.alpha > 0.01) {
-                minis.append(mini);
-            }
-            slot++;
-        }
-
-        auto drawMini = [&p, q](const Mini& mini, bool front) {
-            if (mini.ring) {
-                CelestialPainter::drawRingHalf(p, mini.at, mini.r * 1.9, mini.r * 1.9 * RingRatio, std::max(1.0, mini.r * 0.35), RingRotation,
-                                               QColor(220, 205, 255), front, q);
-            }
-        };
-        std::sort(minis.begin(), minis.end(), [](const Mini& a, const Mini& b) { return a.depth < b.depth; });
-        bool sunDrawn = false;
-        auto drawSun = [&]() {
-            const qreal sunR = std::max(4.0, GalaxyLayout::OverviewSunRadius * zoom * sunScale * (hovered ? 1.08 : 1.0));
-            const qreal explode = nebula.active() ? (nebula.reform > 0 ? 0.3 + 0.7 * nebula.reform : 1 + 1.6 * nebula.form) : 1.0;
-            CelestialPainter::drawSun(p, c, sunR * explode, node.color, sunIntensity * (hovered ? 1.15 : 1.0), q, 1 - nebulaAmount);
-            if (node.running && nebulaAmount < 0.5) {
-                // Running: a pulsing outline plus a text badge (never color alone).
-                const qreal pulse = m_reducedMotion ? 0.5 : 0.5 + 0.5 * std::sin(t * 3.2);
-                p.setPen(QPen(withAlphaF(QColor(134, 239, 172), 0.45 + 0.4 * pulse), 1.5));
-                p.setBrush(Qt::NoBrush);
-                p.drawEllipse(c, sunR * (1.45 + 0.15 * pulse), sunR * (1.45 + 0.15 * pulse));
-            }
-            sunDrawn = true;
-        };
-        for (const auto& mini : minis) {
-            if (!sunDrawn && mini.depth >= 0) {
-                drawSun();
-            }
-            if (mini.sparkle > 0.01) {
-                CelestialPainter::drawSparkle(p, mini.at, 1.4, mini.style.base, twinkle(mini.key, t), mini.sparkle);
-            }
-            if (mini.sparkle < 0.99) {
-                p.save();
-                p.setOpacity(p.opacity() * (1 - mini.sparkle));
-                drawMini(mini, false);
-                CelestialPainter::drawSphere(p, mini.at, mini.r * (1 - 0.6 * mini.sparkle), mini.style, mini.light, mini.facing, std::min(q, 1));
-                drawMini(mini, true);
-                p.restore();
-            }
-        }
-        if (!sunDrawn) {
-            drawSun();
-        }
+        paintMiniSystem(p, i, c, zoom, launchT, hovered);
         p.restore();
 
         // Hit area: the whole mini system.
@@ -1920,6 +1779,136 @@ void GalaxyView::paintGalaxyLayer(QPainter& p, qreal fade)
         if (it->running) {
             paintLabel(p, it->anchor + QPointF(0, fm.height() + 6), tr("▶ Running"), it->opacity, false);
         }
+    }
+}
+
+void GalaxyView::paintMiniSystem(QPainter& p, int index, QPointF c, qreal zoom, qreal launchT, bool hovered)
+{
+    // A profile as the galaxy shows it: its sun with the largest mods on a few orbits (also used for the profiles
+    // that drift by behind an entered system).
+    const auto& node = m_systems[index];
+    const qreal t = now();
+    const int q = quality();
+    const auto [sunIntensity, sunScale] = launchSun(launchT, m_reducedMotion);
+
+    // Overview orbits and planets: the largest installed mods, as a summary.
+    const auto& summary = node.summary;
+    const int planets = static_cast<int>(summary.planetSizes.size());
+    // Same rule as inside a system: at most three planets per orbit.
+    constexpr int overviewOrbits = 4;
+    const qreal orbitRadii[overviewOrbits] = { 0.52, 0.72, 0.92, 1.12 };
+    constexpr int perOrbit = GalaxyLayout::MaxPlanetsPerOrbit;
+    if (m_showOrbits && q >= 1) {
+        for (int k = 0; k < overviewOrbits && k * perOrbit < planets + 1; k++) {
+            CelestialPainter::drawOrbit(p, c, orbitRadii[k] * zoom, orbitRadii[k] * zoom * TiltSin, OrbitColor, 0.13);
+        }
+    }
+
+    struct Mini {
+        qreal depth;
+        QPointF at;
+        qreal r;
+        CelestialPainter::SurfaceStyle style;
+        QPointF light;
+        qreal facing;
+        int ring;  // 1 = draw a shader ring around it
+        QString key;
+        qreal sparkle = 0;
+    };
+    QList<Mini> minis;
+    const auto nebula = nebulaMix(node.id);
+    const qreal nebulaAmount = nebula.amount();
+    if (nebula.active()) {
+        const qreal grow = nebula.reform > 0 ? 1 - 0.85 * easeInOut(nebula.reform) : 0.25 + 0.75 * easeOut(nebula.form);
+        CelestialPainter::drawNebula(p, c, GalaxyLayout::OverviewRadius * 0.95 * zoom * grow, node.color, m_driftTime + m_orbitTime,
+                                     stableHash(node.id), q, nebulaAmount);
+    }
+    int slot = 0;
+    // Slot 0: the base game planet, hosting packs and shaders.
+    QList<std::pair<qint64, QString>> items;
+    items.append({ -2, QString() });
+    for (int k = 0; k < planets; k++) {
+        items.append({ summary.planetSizes[k], summary.planetKeys[k] });
+    }
+    for (const auto& [bytes, key] : items) {
+        const int orbit = std::min(slot / perOrbit, overviewOrbits - 1);
+        const int index = slot - orbit * perOrbit;
+        const int onOrbit = std::min(perOrbit, static_cast<int>(items.size()) - orbit * perOrbit);
+        const qreal speed = 0.11 * std::pow(orbitRadii[0] / orbitRadii[orbit], 1.5);
+        const qreal angle = orbit * 2.4 + 2 * M_PI * index / std::max(1, onOrbit) + speed * (m_orbitTime - node.paused);
+        qreal radius = orbitRadii[orbit];
+        const auto pull = launchPull(launchT >= 0 && !m_reducedMotion ? launchT : -1, radius / orbitRadii[overviewOrbits - 1]);
+        radius *= 1 - pull.pull;
+        qreal x = radius * std::cos(angle);
+        qreal z = radius * std::sin(angle);
+        Mini mini;
+        mini.key = node.id + '/' + key;
+        if (nebula.active()) {
+            const QPointF orbitPos(x, z);
+            const QPointF spot = sparklePosition(mini.key, GalaxyLayout::OverviewRadius * 0.85);
+            const QPointF at = nebula.reform > 0 ? spot + (orbitPos - spot) * easeInOut(nebula.reform)
+                                                 : (nebula.fromSun ? QPointF() : orbitPos) +
+                                                       (spot - (nebula.fromSun ? QPointF() : orbitPos)) * easeOut(nebula.form);
+            x = at.x();
+            z = at.y();
+            mini.sparkle = nebulaAmount;
+        }
+        mini.depth = z;
+        mini.at = c + QPointF(x * zoom, z * TiltSin * zoom);
+        const bool base = bytes == -2;
+        const qreal size = base ? 0.11 : 0.04 + 0.07 * GalaxyLayout::sizeFraction(bytes, GalaxyLayout::PlanetMinBytes,
+                                                                                  GalaxyLayout::PlanetMaxBytes);
+        mini.r = std::max(1.4, size * m_objectScale * zoom * pull.scale);
+        mini.style = base ? CelestialPainter::baseGameStyle() : CelestialPainter::styleForKey(styleKey(key), false);
+        const qreal len = std::max(1e-6, std::hypot(x, z));
+        mini.light = QPointF(-x / len, (-z / len) * TiltSin - 0.35 * TiltCos);
+        mini.facing = (-z / len) * TiltCos + 0.35 * TiltSin;
+        mini.ring = base && summary.shaders > 0 ? 1 : 0;
+        if (pull.alpha > 0.01) {
+            minis.append(mini);
+        }
+        slot++;
+    }
+
+    auto drawMini = [&p, q](const Mini& mini, bool front) {
+        if (mini.ring) {
+            CelestialPainter::drawRingHalf(p, mini.at, mini.r * 1.9, mini.r * 1.9 * RingRatio, std::max(1.0, mini.r * 0.35), RingRotation,
+                                           QColor(220, 205, 255), front, q);
+        }
+    };
+    std::sort(minis.begin(), minis.end(), [](const Mini& a, const Mini& b) { return a.depth < b.depth; });
+    bool sunDrawn = false;
+    auto drawSun = [&]() {
+        const qreal sunR = std::max(4.0, GalaxyLayout::OverviewSunRadius * zoom * sunScale * (hovered ? 1.08 : 1.0));
+        const qreal explode = nebula.active() ? (nebula.reform > 0 ? 0.3 + 0.7 * nebula.reform : 1 + 1.6 * nebula.form) : 1.0;
+        CelestialPainter::drawSun(p, c, sunR * explode, node.color, sunIntensity * (hovered ? 1.15 : 1.0), q, 1 - nebulaAmount);
+        if (node.running && nebulaAmount < 0.5) {
+            // Running: a pulsing outline plus a text badge (never color alone).
+            const qreal pulse = m_reducedMotion ? 0.5 : 0.5 + 0.5 * std::sin(t * 3.2);
+            p.setPen(QPen(withAlphaF(QColor(134, 239, 172), 0.45 + 0.4 * pulse), 1.5));
+            p.setBrush(Qt::NoBrush);
+            p.drawEllipse(c, sunR * (1.45 + 0.15 * pulse), sunR * (1.45 + 0.15 * pulse));
+        }
+        sunDrawn = true;
+    };
+    for (const auto& mini : minis) {
+        if (!sunDrawn && mini.depth >= 0) {
+            drawSun();
+        }
+        if (mini.sparkle > 0.01) {
+            CelestialPainter::drawSparkle(p, mini.at, 1.4, mini.style.base, twinkle(mini.key, t), mini.sparkle);
+        }
+        if (mini.sparkle < 0.99) {
+            p.save();
+            p.setOpacity(p.opacity() * (1 - mini.sparkle));
+            drawMini(mini, false);
+            CelestialPainter::drawSphere(p, mini.at, mini.r * (1 - 0.6 * mini.sparkle), mini.style, mini.light, mini.facing, std::min(q, 1));
+            drawMini(mini, true);
+            p.restore();
+        }
+    }
+    if (!sunDrawn) {
+        drawSun();
     }
 }
 
@@ -1975,19 +1964,51 @@ void GalaxyView::paintSystemLayer(QPainter& p, qreal alpha, QPointF origin, qrea
         bool visible = true;
     };
     QList<Placed> placed(m_layout.nodes.size());
+
+    // Disabled content does not go into the sun or the nebula: it moves out to one shared orbit beyond the others
+    // while the game launches and runs, and comes back when it stops. Rings of a disabled planet go with it.
+    QList<int> exiled;
+    QList<int> exileSlot(m_layout.nodes.size(), -1);
+    for (int n = 0; n < m_layout.nodes.size(); n++) {
+        const auto& node = m_layout.nodes[n];
+        const bool parentExiled = node.parent >= 0 && node.parent < n && exileSlot[node.parent] >= 0;
+        if (!m_bodies[node.body].enabled || (node.role == GalaxyLayout::Node::Role::Ring && parentExiled)) {
+            exileSlot[n] = static_cast<int>(exiled.size());
+            exiled.append(n);
+        }
+    }
+    qreal exileWeight = 0;
+    if (launchMotion) {
+        exileWeight = easeInOut(clamp01(launchT / 0.7)) * (1 - easeInOut(clamp01((launchT - (LaunchDuration - 0.4)) / 0.4)));
+    }
+    if (nebula.active()) {
+        exileWeight = std::max(exileWeight, nebula.reform > 0 ? 1 - easeInOut(nebula.reform) : nebula.fromSun ? 1.0 : easeOut(nebula.form));
+    }
+    const qreal exileRadius = extent * 1.3;
+    auto exilePosition = [&](int n) {
+        const auto& node = m_layout.nodes[n];
+        if (node.role == GalaxyLayout::Node::Role::Ring && node.parent >= 0 && exileSlot[node.parent] >= 0) {
+            n = node.parent;  // a ring stays around its planet
+        }
+        const qreal angle = 2 * M_PI * exileSlot[n] / std::max<qsizetype>(1, exiled.size()) + 0.04 * m_orbitTime;
+        return QPointF(exileRadius * std::cos(angle), exileRadius * std::sin(angle));
+    };
+
     for (int n = 0; n < m_layout.nodes.size(); n++) {
         const auto& node = m_layout.nodes[n];
         const auto& body = m_bodies[node.body];
         auto& pl = placed[n];
         pl.local = nodePosition(n);
-        if (launchMotion) {
+        if (exileSlot[n] >= 0) {
+            pl.local += (exilePosition(n) - pl.local) * exileWeight;
+        } else if (launchMotion) {
             const qreal frac = std::hypot(pl.local.x(), pl.local.y()) / extent;
             pl.pull = launchPull(launchT, frac);
             pl.local *= 1 - pl.pull.pull;
             pl.scale = pl.pull.scale;
             pl.alpha = pl.pull.alpha;
         }
-        if (nebula.active()) {
+        if (nebula.active() && exileSlot[n] < 0) {
             // Fly out to a fixed spot in the nebula (from the sun after a launch), or back to the orbit when reforming.
             const QPointF orbit = nodePosition(n);
             const QPointF spot = sparklePosition(body.key, nebulaRadius);

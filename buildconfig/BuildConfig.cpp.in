@@ -109,6 +109,8 @@ Config::Config()
     WIKI_URL = "@Launcher_WIKI_URL@";
     HELP_URL = "@Launcher_HELP_URL@";
     LOGIN_CALLBACK_URL = "@Launcher_LOGIN_CALLBACK_URL@";
+    GALAXY_VERSION = "@Launcher_GALAXY_VERSION@";
+    GALAXY_RELEASES_REPO = "@Launcher_GALAXY_RELEASES_REPO@";
     IMGUR_CLIENT_ID = "@Launcher_IMGUR_CLIENT_ID@";
     MSA_CLIENT_ID = "@Launcher_MSA_CLIENT_ID@";
     FLAME_API_KEY = "@Launcher_CURSEFORGE_API_KEY@";

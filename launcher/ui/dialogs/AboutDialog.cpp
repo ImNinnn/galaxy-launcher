@@ -95,7 +95,8 @@ AboutDialog::AboutDialog(QWidget* parent) : QDialog(parent), ui(new Ui::AboutDia
     ui->icon->setPixmap(APPLICATION->logo().pixmap(64));
     ui->title->setText(launcherName);
 
-    ui->versionLabel->setText(BuildConfig.printableVersionString());
+    // Galaxy Launcher: its own version, and the Prism Launcher version it is built on.
+    ui->versionLabel->setText(tr("%1 (built on Prism Launcher %2)").arg(BuildConfig.GALAXY_VERSION, BuildConfig.printableVersionString()));
 
     if (!BuildConfig.BUILD_PLATFORM.isEmpty())
         ui->platformLabel->setText(tr("Platform") + ": " + BuildConfig.BUILD_PLATFORM);

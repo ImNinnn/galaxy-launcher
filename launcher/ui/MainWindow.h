@@ -43,6 +43,7 @@
 #include <QMainWindow>
 #include <QProcess>
 #include <QTimer>
+#include <QUrl>
 
 #include "minecraft/auth/MinecraftAccount.h"
 
@@ -296,4 +297,12 @@ class MainWindow : public QMainWindow {
     bool m_listView = false;
     bool m_resizeCursor = false;
     class DiscordPresence* m_discord = nullptr;
+    // New Galaxy Launcher versions on GitHub: a red download arrow right of the help button.
+    class LauncherUpdate* m_launcherUpdate = nullptr;
+    QAction* m_launcherUpdateAction = nullptr;
+    QToolButton* m_launcherUpdateButton = nullptr;
+    QString m_launcherUpdateVersion;
+    QString m_launcherUpdateNotes;
+    QUrl m_launcherUpdatePage;
+    QUrl m_launcherUpdateInstaller;
 };

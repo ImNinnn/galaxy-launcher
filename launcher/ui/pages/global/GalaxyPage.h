@@ -51,6 +51,7 @@ class GalaxyPage : public QWidget, public BasePage {
     QCheckBox* m_updateChecks = nullptr;
     QCheckBox* m_systemTitleBar = nullptr;
     QCheckBox* m_discordPresence = nullptr;
+    QCheckBox* m_launcherUpdates = nullptr;
     QComboBox* m_renderQuality = nullptr;
     QComboBox* m_starfield = nullptr;
     QComboBox* m_defaultView = nullptr;

@@ -107,6 +107,8 @@ GalaxyPage::GalaxyPage(QWidget* parent) : QWidget(parent)
     m_discordPresence->setToolTip(tr("Shows \"In the launcher\" or \"Playing <profile>\" with its loader and Minecraft version, and your "
                                      "account's head, when the Discord app is running."));
     otherLayout->addWidget(m_discordPresence);
+    m_launcherUpdates = new QCheckBox(tr("Check GitHub for new versions of Galaxy Launcher at startup"), other);
+    otherLayout->addWidget(m_launcherUpdates);
     layout->addWidget(other);
 
     auto* note = new QLabel(tr("Profile sun colors are set per profile: right-click a sun or a profile in the sidebar."), content);
@@ -148,6 +150,7 @@ void GalaxyPage::load()
     m_updateChecks->setChecked(s->get(GalaxySettings::UpdateChecks).toBool());
     m_systemTitleBar->setChecked(s->get(GalaxySettings::SystemTitleBar).toBool());
     m_discordPresence->setChecked(s->get(GalaxySettings::DiscordPresence).toBool());
+    m_launcherUpdates->setChecked(s->get(GalaxySettings::LauncherUpdates).toBool());
     m_renderQuality->setCurrentIndex(m_renderQuality->findData(s->get(GalaxySettings::RenderQuality).toInt()));
     m_starfield->setCurrentIndex(m_starfield->findData(s->get(GalaxySettings::StarfieldQuality).toInt()));
     m_defaultView->setCurrentIndex(std::max(0, m_defaultView->findData(s->get(GalaxySettings::DefaultView).toString())));
@@ -171,6 +174,7 @@ bool GalaxyPage::apply()
     s->set(GalaxySettings::UpdateChecks, m_updateChecks->isChecked());
     s->set(GalaxySettings::SystemTitleBar, m_systemTitleBar->isChecked());
     s->set(GalaxySettings::DiscordPresence, m_discordPresence->isChecked());
+    s->set(GalaxySettings::LauncherUpdates, m_launcherUpdates->isChecked());
     s->set(GalaxySettings::RenderQuality, m_renderQuality->currentData().toInt());
     s->set(GalaxySettings::StarfieldQuality, m_starfield->currentData().toInt());
     s->set(GalaxySettings::DefaultView, m_defaultView->currentData().toString());

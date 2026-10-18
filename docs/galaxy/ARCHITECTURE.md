@@ -31,6 +31,7 @@ All new code lives in `launcher/ui/galaxy/` unless noted.
 | `ProjectActions` | Context menus and operations on installed content, delegating to Prism's models and dialogs. |
 | `DiscoverWindow` | Non-modal "Discover" window: one tab per content type, each hosting Prism's `ResourceDownloadDialog` embedded as a widget (providers, search, filters, versions, dependencies, review), plus a profile picker. |
 | `UpdateChecker` | Background Modrinth update checks (Prism's `ModrinthCheckUpdate`) when a profile is opened, once its folders have loaded; includes files with locked updates (modpack content). Marks content in the galaxy and, through a hook in `ResourceFolderModel::ProxyModel`, in Prism's list pages. Keeps each update's ready download task (`updatesFor()`), valid while the file is unchanged. |
+| `LauncherUpdate` | Startup check of the GitHub releases (`BuildConfig.GALAXY_RELEASES_REPO`, previews included) against `BuildConfig.GALAXY_VERSION`; the main window shows a red arrow and `show()` explains the update. Galaxy Launcher's version is separate from the Prism Launcher version it is built on. |
 | `UpdatesDialog` | Every update of a profile with changelogs; `ProjectActions::updateAll()` runs the chosen download tasks together and re-disables files that were disabled. |
 | `DiscordPresence` | Discord Rich Presence over Discord's local IPC socket (handshake, `SET_ACTIVITY`, reconnects). |
 | `MicrosoftLoginSetup` | Explains how to get a Microsoft application (client) ID and stores it in Prism's `MSAClientIDOverride` setting. |
@@ -137,8 +138,10 @@ ResourceFolderModels ──signals──▶ SystemContent::rebuild() (debounced 
   else, so the sun's larger hit area never hides a sparkle.
 * A black hole click (`launchFromBlackHole()`) draws a beam to `blackHoleTarget()` (the chosen profile, else the last
   played) and emits `launchRequested` when it arrives, so the normal launch and its animation follow.
+* Disabled content is exiled during a launch and the nebula: instead of the pull-in and the sparkles it moves to one
+  shared orbit at 1.3× the system's extent (rings of a disabled planet go with it) and returns on reform.
 * `m_passer`: in system view, every 45–150 s another profile or the black hole crosses the background (purely
-  cosmetic, not clickable). It is painted with the system layer's opacity, so it fades out when leaving the system.
+  cosmetic, not clickable), drawn with `paintMiniSystem()`, the galaxy view's mini system. It is painted with the system layer's opacity, so it fades out when leaving the system.
 
 ## Animation and performance
 

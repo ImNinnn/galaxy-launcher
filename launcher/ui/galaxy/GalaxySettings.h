@@ -41,6 +41,7 @@ inline const QString UpdateChecks = QStringLiteral("GalaxyUpdateChecks");       
 inline const QString SystemTitleBar = QStringLiteral("GalaxySystemTitleBar");    // bool: use the window manager's title bar
 inline const QString DiscordPresence = QStringLiteral("GalaxyDiscordPresence");  // bool: Discord Rich Presence
 inline const QString BlackHoleName = QStringLiteral("GalaxyBlackHoleName");      // QString: name shown under the black hole
+inline const QString LauncherUpdates = QStringLiteral("GalaxyLauncherUpdates");  // bool: check GitHub for new Galaxy Launcher versions
 inline const QString BlackHoleProfile = QStringLiteral("GalaxyBlackHoleProfile");  // QString: profile the black hole launches; empty = last played
 inline const QString DiscoverGeometry = QStringLiteral("GalaxyDiscoverGeometry");  // QString: saved Discover window geometry
 

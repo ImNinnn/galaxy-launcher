@@ -129,7 +129,9 @@
 #include "ui/galaxy/GalaxyView.h"
 #include "ui/galaxy/ProfileContentsPanel.h"
 #include "ui/galaxy/ProjectActions.h"
+#include "ui/galaxy/LauncherUpdate.h"
 #include "ui/galaxy/UpdateChecker.h"
+#include "ui/galaxy/UpdatesDialog.h"
 #include "ui/galaxy/SunColor.h"
 
 #include "minecraft/PackProfile.h"
@@ -1958,6 +1960,24 @@ void MainWindow::setupGalaxyUi()
     if (APPLICATION->updaterEnabled()) {
         m_topBar->addGlobalAction(ui->actionCheckUpdate);
     }
+    // Newer Galaxy Launcher release on GitHub: shown right of the help button once found (checked shortly after start).
+    m_launcherUpdateAction = new QAction(UpdatesDialog::icon(), tr("Update Galaxy Launcher"), this);
+    m_launcherUpdateButton = m_topBar->addGlobalAction(m_launcherUpdateAction);
+    m_launcherUpdateButton->setObjectName("galaxyLauncherUpdateButton");
+    m_launcherUpdateButton->hide();
+    m_launcherUpdate = new LauncherUpdate(this);
+    connect(m_launcherUpdate, &LauncherUpdate::available, this, [this](const LauncherUpdate::Release& release) {
+        m_launcherUpdateVersion = release.version;
+        m_launcherUpdateNotes = release.notes;
+        m_launcherUpdatePage = release.page;
+        m_launcherUpdateInstaller = release.installer;
+        m_launcherUpdateAction->setToolTip(tr("Galaxy Launcher %1 is available: click to update").arg(release.version));
+        m_launcherUpdateButton->show();
+    });
+    connect(m_launcherUpdateAction, &QAction::triggered, this, [this] {
+        LauncherUpdate::show(this, { m_launcherUpdateVersion, QString(), m_launcherUpdateNotes, m_launcherUpdatePage, m_launcherUpdateInstaller });
+    });
+    QTimer::singleShot(4000, m_launcherUpdate, &LauncherUpdate::check);
     connect(m_topBar, &GalaxyTopBar::backRequested, this, [this] {
         if (m_listView) {
             setListView(false);

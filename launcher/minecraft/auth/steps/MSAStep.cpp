@@ -69,11 +69,13 @@ class LoggingOAuthHttpServerReplyHandler final : public QOAuthHttpServerReplyHan
 MSAStep::MSAStep(AccountData* data, bool silent) : AuthStep(data), m_silent(silent)
 {
     m_clientId = APPLICATION->getMSAClientID();
-    // Galaxy Launcher: always sign in through the browser and a local page (http://localhost:<port>/), the redirect
-    // URI registered for the launcher's Microsoft application. The page reads the result from its own address, so it
-    // shows success or the error Microsoft sent back.
+    // Galaxy Launcher: always sign in through the browser and a local page. The launcher's own Microsoft application
+    // is registered for http://localhost:<port>/; another application ID (Settings > APIs, e.g. Prism Launcher's) gets
+    // Qt's default http://127.0.0.1:<port>/, which is what Prism Launcher uses. The page reads the result from its own
+    // address, so it shows success or the error Microsoft sent back.
     auto replyHandler = new LoggingOAuthHttpServerReplyHandler(this);
-    replyHandler->setCallbackHost(QStringLiteral("localhost"));
+    const bool builtInApplication = m_clientId == BuildConfig.MSA_CLIENT_ID;
+    replyHandler->setCallbackHost(builtInApplication ? QStringLiteral("localhost") : QStringLiteral("127.0.0.1"));
     QFile page(QStringLiteral(":/galaxy/login-callback.html"));
     if (page.open(QIODevice::ReadOnly)) {
         replyHandler->setCallbackText(QString::fromUtf8(page.readAll()));

@@ -850,6 +850,8 @@ SET(LAUNCHER_SOURCES
     ui/galaxy/UpdateChecker.cpp
     ui/galaxy/UpdatesDialog.h
     ui/galaxy/UpdatesDialog.cpp
+    ui/galaxy/LauncherUpdate.h
+    ui/galaxy/LauncherUpdate.cpp
     ui/galaxy/SystemContent.cpp
     ui/InstanceWindow.h
     ui/InstanceWindow.cpp

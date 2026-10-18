@@ -144,6 +144,13 @@ class Config {
     QString LOGIN_CALLBACK_URL;
 
     /**
+     * Galaxy Launcher: its own version (the Prism Launcher version above is the one it is built on), and the GitHub
+     * repository ("owner/name") whose releases it checks for newer versions. Empty disables the check.
+     */
+    QString GALAXY_VERSION;
+    QString GALAXY_RELEASES_REPO;
+
+    /**
      * Client ID you can get from Imgur when you register an application
      */
     QString IMGUR_CLIENT_ID;

@@ -313,6 +313,7 @@ class GalaxyView : public QWidget {
     qreal m_nextPass = -1;  ///< When the next one may appear (in system view).
     void updatePasser(qreal t);
     void paintPasser(QPainter& p, qreal alpha);
+    void paintMiniSystem(QPainter& p, int index, QPointF center, qreal zoom, qreal launchT, bool hovered);
 
     // A playing profile's sun becomes a nebula and its content sparkles; it reforms when the game stops.
     struct NebulaState {

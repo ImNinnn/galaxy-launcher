@@ -185,6 +185,10 @@ set(Launcher_NEWS_OPEN_URL "https://prismlauncher.org/news" CACHE STRING "URL th
 set(Launcher_WIKI_URL "https://prismlauncher.org/wiki/" CACHE STRING "URL that gets opened when the user clicks 'Launcher Help'")
 set(Launcher_HELP_URL "https://prismlauncher.org/wiki/help-pages/%1" CACHE STRING "URL (with arg %1 to be substituted with page-id) that gets opened when the user requests help in a dialog window")
 set(Launcher_LOGIN_CALLBACK_URL "https://prismlauncher.org/successful-login" CACHE STRING "URL that gets opened when the user successfully logins.")
+
+# Galaxy Launcher's own version, compared with the tags of the GitHub releases (vX.Y.Z) to offer updates.
+set(Launcher_GALAXY_VERSION "0.2.0")
+set(Launcher_GALAXY_RELEASES_REPO "ImNinnn/galaxy-launcher" CACHE STRING "GitHub repository (owner/name) whose releases Galaxy Launcher checks for updates; empty disables the check")
 set(Launcher_LEGACY_FMLLIBS_BASE_URL "https://files.prismlauncher.org/fmllibs/" CACHE STRING "URL for legacy (<=1.5.2) FML Libraries.")
 
 ######## Set version numbers ########
