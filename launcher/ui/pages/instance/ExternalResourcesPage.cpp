@@ -405,6 +405,11 @@ void ExternalResourcesPage::applyGalaxyActions()
         m_ui->actionsToolbar->insertActionAfter(m_actionUpdate, m_actionUpdateAll);
         for (auto* button : m_ui->actionsToolbar->findChildren<QToolButton*>()) {
             if (button->defaultAction() == m_actionUpdateAll) {
+                for (auto* entry : m_ui->actionsToolbar->actions()) {
+                    if (m_ui->actionsToolbar->widgetForAction(entry) == button) {
+                        m_updateAllBarEntry = entry;
+                    }
+                }
                 button->setStyleSheet(QStringLiteral("QToolButton { color: #F85149; font-weight: 600; }"));
             }
         }
@@ -443,6 +448,9 @@ void ExternalResourcesPage::updateGalaxyActions()
     const auto count = m_instance ? UpdateChecker::instance()->updatesFor(m_instance->id()).size() : 0;
     m_actionUpdateAll->setText(tr("Update All (%1)").arg(count));
     m_actionUpdateAll->setVisible(count > 0);
+    if (m_updateAllBarEntry) {
+        m_updateAllBarEntry->setVisible(count > 0);
+    }
 }
 
 void ExternalResourcesPage::viewHomepage()

@@ -405,6 +405,14 @@ void ModFilterWidget::setCategories(const QList<ModPlatform::Category>& categori
     }
 }
 
+void ModFilterWidget::setPackMode()
+{
+    m_ui->loaderGroup->hide();
+    m_ui->environmentGroup->hide();
+    m_filter->loaders = {};
+    m_filter->side = ModPlatform::SideType::NoSide;
+}
+
 void ModFilterWidget::setLoaderVersionOnly(bool only)
 {
     if (!only) {

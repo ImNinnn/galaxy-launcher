@@ -70,7 +70,7 @@ void ShaderPackResourcePage::triggerSearch()
 
     updateSelectionButton();
 
-    static_cast<ShaderPackResourceModel*>(m_model)->searchWithTerm(getSearchTerm(), m_ui->sortByBox->currentData().toUInt());
+    static_cast<ShaderPackResourceModel*>(m_model)->searchWithTerm(getSearchTerm(), m_ui->sortByBox->currentData().toUInt(), takePackFilter());
     m_fetchProgress.watch(m_model->activeSearchJob().get());
 }
 

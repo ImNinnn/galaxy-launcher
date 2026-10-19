@@ -117,6 +117,12 @@ class ResourcePage : public QWidget, public BasePage {
 
     void setSuppressInitialSearch(bool suppress);
 
+    /**
+     * Galaxy Launcher: gives a resource, shader or data pack page the mod pages' filter panel (Minecraft version,
+     * the Modrinth categories of `categoryType`, release types, …). `extraCategories` come first (shader loaders).
+     */
+    void enablePackFilter(ModFilterWidget* widget, const QString& categoryType, const QList<ModPlatform::Category>& extraCategories = {});
+
    protected slots:
     virtual void triggerSearch() = 0;
 
@@ -156,6 +162,11 @@ class ResourcePage : public QWidget, public BasePage {
 
     ResourceDescriptor m_desc;
     ResourceProviderData m_provider;
+
+    /** Galaxy Launcher: hands the pack filter to the model; true when it changed since the last search. */
+    bool takePackFilter();
+    std::unique_ptr<ModFilterWidget> m_packFilterWidget;
+    Task::Ptr m_packCategoriesTask;
 
    private:
     bool m_suppressInitialSearch = false;

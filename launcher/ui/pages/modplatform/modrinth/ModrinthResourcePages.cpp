@@ -55,19 +55,31 @@ static ResourceProviderData prepareModrinth()
     };
 }
 
+// Galaxy Launcher: resource, shader and data packs get the mod pages' filters (Minecraft version, categories, ...).
 ShaderPackResourcePage* Modrinth::createShaderPackResourcePage(ResourceDownloadDialog* dialog, BaseInstance& instance)
 {
-    return new ShaderPackResourcePage(dialog, instance, prepareModrinth(), &ModrinthAPI::get());
+    auto* page = new ShaderPackResourcePage(dialog, instance, prepareModrinth(), &ModrinthAPI::get());
+    // Shader loaders are filtered like categories on Modrinth.
+    page->enablePackFilter(ModFilterWidget::create(&static_cast<MinecraftInstance&>(instance), true), "shader",
+                           { { .name = "Iris", .id = "iris" },
+                             { .name = "OptiFine", .id = "optifine" },
+                             { .name = "Canvas", .id = "canvas" },
+                             { .name = "Vanilla (core shaders)", .id = "vanilla" } });
+    return page;
 }
 
 DataPackResourcePage* Modrinth::createDataPackResourcePage(ResourceDownloadDialog* dialog, BaseInstance& instance)
 {
-    return new DataPackResourcePage(dialog, instance, prepareModrinth(), &ModrinthAPI::get());
+    auto* page = new DataPackResourcePage(dialog, instance, prepareModrinth(), &ModrinthAPI::get());
+    page->enablePackFilter(ModFilterWidget::create(&static_cast<MinecraftInstance&>(instance), true), "mod");  // data packs use mod categories
+    return page;
 }
 
 ResourcePackResourcePage* Modrinth::createResourcePackResourcePage(ResourceDownloadDialog* dialog, BaseInstance& instance)
 {
-    return new ResourcePackResourcePage(dialog, instance, prepareModrinth(), &ModrinthAPI::get());
+    auto* page = new ResourcePackResourcePage(dialog, instance, prepareModrinth(), &ModrinthAPI::get());
+    page->enablePackFilter(ModFilterWidget::create(&static_cast<MinecraftInstance&>(instance), true), "resourcepack");
+    return page;
 }
 
 TexturePackResourcePage* Modrinth::createTexturePackResourcePage(ResourceDownloadDialog* dialog, BaseInstance& instance)

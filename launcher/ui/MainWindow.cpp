@@ -2025,7 +2025,7 @@ void MainWindow::setupGalaxyUi()
     connect(m_galaxy, &GalaxyView::navigationChanged, this, &MainWindow::updateGalaxyNavigation);
     connect(m_galaxy, &GalaxyView::profilesUpdated, m_sidebar, &GalaxySidebar::refresh);
 
-    // List view: Prism's instance view plus the selected profile's content pages.
+    // List view: the selected profile's content pages (profiles are picked in the sidebar).
     m_contents = new ProfileContentsPanel(ui->centralWidget);
     m_listSplitter = new QSplitter(Qt::Horizontal, ui->centralWidget);
     m_listSplitter->addWidget(view);
@@ -2033,6 +2033,8 @@ void MainWindow::setupGalaxyUi()
     m_listSplitter->setStretchFactor(0, 2);
     m_listSplitter->setStretchFactor(1, 3);
     m_listSplitter->setChildrenCollapsible(false);
+    // The sidebar already lists the profiles: Prism's profile grid stays as the (hidden) selection model behind it.
+    view->hide();
 
     m_stack = new QStackedWidget(ui->centralWidget);
     m_stack->addWidget(m_galaxy);
@@ -2109,7 +2111,7 @@ void MainWindow::setListView(bool list, bool remember)
         // Close the pages so the list view stops watching folders it no longer shows.
         m_contents->release();
     }
-    (list ? static_cast<QWidget*>(view) : m_galaxy)->setFocus();
+    (list ? static_cast<QWidget*>(m_contents) : m_galaxy)->setFocus();
     if (remember) {
         APPLICATION->settings()->set(GalaxySettings::LastView, list ? "list" : "galaxy");
     }

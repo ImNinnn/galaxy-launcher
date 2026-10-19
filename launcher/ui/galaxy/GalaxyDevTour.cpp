@@ -25,6 +25,7 @@
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QNetworkReply>
+#include <QPushButton>
 #include <QTabWidget>
 #include <QTimer>
 #include <QTreeView>
@@ -455,6 +456,22 @@ void GalaxyDevTour::start(MainWindow* window, const QString& directory)
         { 200, [galaxy, bodyKey] { hover(galaxy, galaxy->bodyScreenPosition(bodyKey(CelestialBody::Kind::ShaderPack))); },
           "07-ring-hover" },
         { 200, [galaxy] { hover(galaxy, galaxy->sunScreenPosition()); }, "08-sun-hover" },
+        { 4500,
+          [galaxy, bodyKey] {
+              // A hovered planet stops; once the cursor leaves it catches up until it is back in its place.
+              const auto key = bodyKey(CelestialBody::Kind::Mod);
+              hover(galaxy, galaxy->bodyScreenPosition(key));
+              QTimer::singleShot(1500, galaxy, [galaxy, key] {
+                  const qreal behind = galaxy->bodyLag(key);
+                  hover(galaxy, QPointF(5, 5));
+                  QTimer::singleShot(2800, galaxy, [galaxy, key, behind] {
+                      const qreal after = galaxy->bodyLag(key);
+                      qInfo() << "Catch-up test: behind" << behind << "s while hovered," << after << "s after leaving"
+                              << (behind > 0.5 && after < 0.01 ? "PASSED" : "FAILED");
+                  });
+              });
+          },
+          QString() },
         // Switching systems from the sidebar: out to the galaxy first, then into the other system.
         { 250,
           [galaxy, target] {
@@ -536,6 +553,15 @@ void GalaxyDevTour::start(MainWindow* window, const QString& directory)
               for (auto* top : QApplication::topLevelWidgets()) {
                   if (top->isVisible() && top->objectName() == "galaxyDiscoverWindow") {
                       top->grab().save(QDir(directory).filePath("27-discover-shaders.png"));
+                      // The filter options, as the shader page has them (Minecraft version, shader loaders, categories).
+                      for (auto* button : top->findChildren<QPushButton*>("resourceFilterButton")) {
+                          if (button->isVisible()) {
+                              button->click();
+                              QApplication::processEvents();
+                              top->grab().save(QDir(directory).filePath("27b-discover-shader-filters.png"));
+                              break;
+                          }
+                      }
                       qInfo() << "Discover window closes:" << (top->close() ? "PASSED" : "FAILED");
                   }
               }

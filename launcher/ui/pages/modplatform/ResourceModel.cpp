@@ -597,8 +597,42 @@ void ResourceModel::removePack(const QString& rem)
     }
 }
 
+bool ResourceModel::checkFilters(ModPlatform::IndexedPack::Ptr pack)
+{
+    return !(m_packFilter && m_packFilter->hideInstalled && isPackInstalled(pack));
+}
+
 bool ResourceModel::checkVersionFilters(const ModPlatform::IndexedVersion& v)
 {
-    return (!optedOut(v));
+    if (optedOut(v)) {
+        return false;
+    }
+    if (!m_packFilter) {
+        return true;
+    }
+    const auto& releases = m_packFilter->releases;
+    return (releases.empty() || std::find(releases.cbegin(), releases.cend(), v.versionType) != releases.cend()) &&
+           m_packFilter->checkMcVersions(v.mcVersion);
+}
+
+void ResourceModel::applyPackFilter(ResourceAPI::SearchArgs& args) const
+{
+    if (!m_packFilter) {
+        return;
+    }
+    args.versions = packFilterVersions();
+    if (!m_packFilter->categoryIds.empty()) {
+        args.categoryIds = m_packFilter->categoryIds;
+    }
+    args.openSource = m_packFilter->openSource;
+    args.excludeDisclosureTypes = m_packFilter->excludeDisclosureTypes;
+}
+
+std::optional<std::vector<Version>> ResourceModel::packFilterVersions() const
+{
+    if (!m_packFilter || m_packFilter->versions.empty()) {
+        return {};
+    }
+    return m_packFilter->versions;
 }
 }  // namespace ResourceDownload

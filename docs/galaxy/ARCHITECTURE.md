@@ -47,6 +47,10 @@ All new code lives in `launcher/ui/galaxy/` unless noted.
 * `ResourceFolderModel::startWatching/stopWatching` are reference counted. Before, a second watcher (e.g. the galaxy
   and an open instance window) would toggle the state and stop the other's updates. Only the first start arms the
   orphan-metadata cleanup; armed by an extra watcher it fired mid-update and deleted the new metadata.
+* `ResourcePage::enablePackFilter()` + `ResourceModel::applyPackFilter()`: resource, shader and data pack pages reuse
+  `ModFilterWidget` in pack mode (no loader or environment group) with their own Modrinth categories (shaders also
+  list the shader loaders); the mod pages keep Prism's own filter code.
+* The list view hides Prism's profile grid (the sidebar picks the profile); it stays as the selection model.
 * `ExternalResourcesPage` (list view and instance window pages): `applyGalaxyActions()` trims the toolbar (no update
   checks or locks), adds *Update* and *Update All*, and right-clicking one project shows `ProjectActions`' menu.
 * `BaseInstance` registers the cosmetic `GalaxySunColor` setting.
@@ -125,7 +129,9 @@ ResourceFolderModels ──signals──▶ SystemContent::rebuild() (debounced 
   room. The galaxy turns as a whole (`galacticSpeed`, one turn about every five minutes); a rigid rotation keeps the
   no-overlap guarantee that differential rotation would break.
 * Hovering pauses motion per object: planets and moons keep a per-node paused time (a moon or ring pauses its
-  planet too); a hovered profile pauses its own mini planets and falls behind the galaxy's rotation
+  planet too), capped so a stopped body never reaches a neighbour on its orbit, and decaying once the cursor leaves
+  so the body speeds up back into its place (`BodyCatchUpRate`). Disabled content on its shared orbit pauses the same
+  way, and that orbit is drawn (with orbit paths on) while the system is a nebula; a hovered profile pauses its own mini planets and falls behind the galaxy's rotation
   (`SystemNode::lag`), catching up afterwards. Because the rotation is rigid, only the lagging profile moves
   relative to the others, and `systemLagAllowed()` refuses any lag that would bring it too close to another one.
 * `GalaxyView::syncNebulae()` follows each profile's running state. When the launch pull-in completes (or a game is

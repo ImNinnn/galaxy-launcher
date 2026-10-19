@@ -97,6 +97,8 @@ class GalaxyView : public QWidget {
     QPointF bodyScreenPosition(const QString& bodyKey) const;
     QPointF sunScreenPosition() const;
     QPointF blackHoleScreenPosition() const;
+    /** Seconds of orbit a body is behind its place (it stopped while hovered and is catching up). For tests. */
+    qreal bodyLag(const QString& bodyKey) const;
     /** The key of the body a click at 'pos' would pick (empty for the sun, a system or nothing). */
     QString bodyKeyAt(const QPointF& pos) const;
 
@@ -314,6 +316,8 @@ class GalaxyView : public QWidget {
     void updatePasser(qreal t);
     void paintPasser(QPainter& p, qreal alpha);
     void paintMiniSystem(QPainter& p, int index, QPointF center, qreal zoom, qreal launchT, bool hovered);
+    /** Per node of the entered system: its place on the shared orbit of disabled content, or -1 (see paintSystemLayer). */
+    QList<int> exileSlots() const;
 
     // A playing profile's sun becomes a nebula and its content sparkles; it reforms when the game stops.
     struct NebulaState {

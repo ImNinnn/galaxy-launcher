@@ -14,6 +14,7 @@
 #include "ResourceDownloadTask.h"
 #include "modplatform/ModIndex.h"
 #include "modplatform/ResourceAPI.h"
+#include "ui/widgets/ModFilterWidget.h"
 
 #include "tasks/ConcurrentTask.h"
 
@@ -63,8 +64,11 @@ class ResourceModel : public QAbstractListModel {
         return false;
     };
 
-    virtual bool checkFilters(ModPlatform::IndexedPack::Ptr /*unused*/) { return true; }
+    virtual bool checkFilters(ModPlatform::IndexedPack::Ptr pack);
     virtual bool checkVersionFilters(const ModPlatform::IndexedVersion&);
+
+    /** Galaxy Launcher: filters for resource, shader and data packs (the mod model has its own). */
+    void setPackFilter(std::shared_ptr<ModFilterWidget::Filter> filter) { m_packFilter = std::move(filter); }
 
    public slots:
     void fetchMore(const QModelIndex& parent) override;
@@ -112,6 +116,12 @@ class ResourceModel : public QAbstractListModel {
     auto getCurrentSortingMethodByIndex() const -> std::optional<ResourceAPI::SortingMethod>;
 
     virtual bool isPackInstalled(ModPlatform::IndexedPack::Ptr /*unused*/) const;
+
+    /** Galaxy Launcher: adds the pack filter's Minecraft versions, categories and other options to a search. */
+    void applyPackFilter(ResourceAPI::SearchArgs& args) const;
+    /** Galaxy Launcher: the pack filter's Minecraft versions, if any are chosen. */
+    std::optional<std::vector<Version>> packFilterVersions() const;
+    std::shared_ptr<ModFilterWidget::Filter> m_packFilter;
 
    protected:
     /* Basic search parameters */

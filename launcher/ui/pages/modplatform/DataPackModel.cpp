@@ -22,22 +22,24 @@ DataPackResourceModel::DataPackResourceModel(ResourceFolderModel* resourceList,
 ResourceAPI::SearchArgs DataPackResourceModel::createSearchArguments()
 {
     auto sort = getCurrentSortingMethodByIndex();
-    return { .type = ModPlatform::ResourceType::DataPack,
-             .offset = m_nextSearchOffset,
-             .search = m_searchTerm,
-             .sorting = sort,
-             .loaders = ModPlatform::ModLoaderType::DataPack };
+    ResourceAPI::SearchArgs args{ .type = ModPlatform::ResourceType::DataPack,
+                                  .offset = m_nextSearchOffset,
+                                  .search = m_searchTerm,
+                                  .sorting = sort,
+                                  .loaders = ModPlatform::ModLoaderType::DataPack };
+    applyPackFilter(args);
+    return args;
 }
 
 ResourceAPI::VersionSearchArgs DataPackResourceModel::createVersionsArguments(const QModelIndex& entry)
 {
     auto pack = m_packs[entry.row()];
-    return { .pack = pack, .mcVersions = {}, .loaders = ModPlatform::ModLoaderType::DataPack };
+    return { .pack = pack, .mcVersions = packFilterVersions(), .loaders = ModPlatform::ModLoaderType::DataPack };
 }
 
-void DataPackResourceModel::searchWithTerm(const QString& term, unsigned int sort)
+void DataPackResourceModel::searchWithTerm(const QString& term, unsigned int sort, bool filterChanged)
 {
-    if (m_searchTerm == term && m_searchTerm.isNull() == term.isNull() && m_currentSortIndex == sort) {
+    if (m_searchTerm == term && m_searchTerm.isNull() == term.isNull() && m_currentSortIndex == sort && !filterChanged) {
         return;
     }
 

@@ -72,7 +72,7 @@ void ResourcePackResourcePage::triggerSearch()
 
     updateSelectionButton();
 
-    static_cast<ResourcePackResourceModel*>(m_model)->searchWithTerm(getSearchTerm(), m_ui->sortByBox->currentData().toUInt());
+    static_cast<ResourcePackResourceModel*>(m_model)->searchWithTerm(getSearchTerm(), m_ui->sortByBox->currentData().toUInt(), takePackFilter());
     m_fetchProgress.watch(m_model->activeSearchJob().get());
 }
 

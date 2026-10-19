@@ -21,7 +21,7 @@ ResourcePackResourceModel::ResourcePackResourceModel(ResourceFolderModel* resour
 ResourceAPI::SearchArgs ResourcePackResourceModel::createSearchArguments()
 {
     auto sort = getCurrentSortingMethodByIndex();
-    return {
+    ResourceAPI::SearchArgs args{
         .type = ModPlatform::ResourceType::ResourcePack,
         .offset = m_nextSearchOffset,
         .search = m_searchTerm,
@@ -32,17 +32,19 @@ ResourceAPI::SearchArgs ResourcePackResourceModel::createSearchArguments()
         .categoryIds = {},
         .openSource = {},
     };
+    applyPackFilter(args);
+    return args;
 }
 
 ResourceAPI::VersionSearchArgs ResourcePackResourceModel::createVersionsArguments(const QModelIndex& entry)
 {
     auto pack = m_packs[entry.row()];
-    return { .pack = pack, .mcVersions = {}, .loaders = {}, .resourceType = ModPlatform::ResourceType::ResourcePack };
+    return { .pack = pack, .mcVersions = packFilterVersions(), .loaders = {}, .resourceType = ModPlatform::ResourceType::ResourcePack };
 }
 
-void ResourcePackResourceModel::searchWithTerm(const QString& term, unsigned int sort)
+void ResourcePackResourceModel::searchWithTerm(const QString& term, unsigned int sort, bool filterChanged)
 {
-    if (m_searchTerm == term && m_searchTerm.isNull() == term.isNull() && m_currentSortIndex == sort) {
+    if (m_searchTerm == term && m_searchTerm.isNull() == term.isNull() && m_currentSortIndex == sort && !filterChanged) {
         return;
     }
 

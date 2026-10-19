@@ -21,7 +21,7 @@ ShaderPackResourceModel::ShaderPackResourceModel(ResourceFolderModel* resourceLi
 ResourceAPI::SearchArgs ShaderPackResourceModel::createSearchArguments()
 {
     auto sort = getCurrentSortingMethodByIndex();
-    return {
+    ResourceAPI::SearchArgs args{
         .type = ModPlatform::ResourceType::ShaderPack,
         .offset = m_nextSearchOffset,
         .search = m_searchTerm,
@@ -32,17 +32,19 @@ ResourceAPI::SearchArgs ShaderPackResourceModel::createSearchArguments()
         .categoryIds = {},
         .openSource = {},
     };
+    applyPackFilter(args);
+    return args;
 }
 
 ResourceAPI::VersionSearchArgs ShaderPackResourceModel::createVersionsArguments(const QModelIndex& entry)
 {
     auto pack = m_packs[entry.row()];
-    return { .pack = pack, .mcVersions = {}, .loaders = {}, .resourceType = ModPlatform::ResourceType::ShaderPack };
+    return { .pack = pack, .mcVersions = packFilterVersions(), .loaders = {}, .resourceType = ModPlatform::ResourceType::ShaderPack };
 }
 
-void ShaderPackResourceModel::searchWithTerm(const QString& term, unsigned int sort)
+void ShaderPackResourceModel::searchWithTerm(const QString& term, unsigned int sort, bool filterChanged)
 {
-    if (m_searchTerm == term && m_searchTerm.isNull() == term.isNull() && m_currentSortIndex == sort) {
+    if (m_searchTerm == term && m_searchTerm.isNull() == term.isNull() && m_currentSortIndex == sort && !filterChanged) {
         return;
     }
 

@@ -78,6 +78,7 @@ class ExternalResourcesPage : public QMainWindow, public BasePage {
     void updateGalaxyActions();
     QAction* m_actionUpdate = nullptr;     ///< Updates the selected project to its latest version.
     QAction* m_actionUpdateAll = nullptr;  ///< Every update in the profile (UpdatesDialog).
+    QAction* m_updateAllBarEntry = nullptr;  ///< Its button's place in the toolbar (hiding the action does not hide it).
 
     MinecraftInstance* m_instance = nullptr;
 

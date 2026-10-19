@@ -73,7 +73,7 @@ void DataPackResourcePage::triggerSearch()
 
     updateSelectionButton();
 
-    static_cast<DataPackResourceModel*>(m_model)->searchWithTerm(getSearchTerm(), m_ui->sortByBox->currentData().toUInt());
+    static_cast<DataPackResourceModel*>(m_model)->searchWithTerm(getSearchTerm(), m_ui->sortByBox->currentData().toUInt(), takePackFilter());
     m_fetchProgress.watch(m_model->activeSearchJob().get());
 }
 

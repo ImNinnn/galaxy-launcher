@@ -20,7 +20,7 @@ class DataPackResourceModel : public ResourceModel {
     DataPackResourceModel(ResourceFolderModel*, const ResourceAPI*, QString, QString);
 
     /* Ask the API for more information */
-    void searchWithTerm(const QString& term, unsigned int sort);
+    void searchWithTerm(const QString& term, unsigned int sort, bool filterChanged = false);
 
     [[nodiscard]] QString debugName() const override { return m_debugName; }
     [[nodiscard]] QString metaEntryBase() const override { return m_metaEntryBase; }

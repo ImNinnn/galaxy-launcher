@@ -107,6 +107,8 @@ class ModFilterWidget : public QTabWidget {
 
    public:
     void setLoaderVersionOnly(bool only);
+    /** Galaxy Launcher: for resource, shader and data packs (no mod loaders or environment). */
+    void setPackMode();
 
    public slots:
     void setCategories(const QList<ModPlatform::Category>&);

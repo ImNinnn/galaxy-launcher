@@ -67,6 +67,8 @@ constexpr qreal TweenDuration = 0.7;
 constexpr qreal AppearDuration = 0.5;
 constexpr qreal SystemMoveDuration = 0.6;
 constexpr qreal SystemCatchUpRate = 0.75;
+constexpr qreal BodyCatchUpRate = 1.0;  ///< After a hover, a body moves this much faster until it is back in place.
+constexpr qreal ExileSpeed = 0.04;      ///< Radians per second on the shared orbit of disabled content.
 constexpr qreal BeamArrive = 0.55;    ///< Seconds for the black hole's beam to reach the system (then it launches).
 constexpr qreal BeamDuration = 1.15;  ///< Beam fully faded.  ///< After a hover, a profile turns this much faster until it is back in place.
 constexpr qreal NebulaFormDuration = 1.2;
@@ -806,6 +808,12 @@ QPointF GalaxyView::bodyScreenPosition(const QString& bodyKey) const
     return {};
 }
 
+qreal GalaxyView::bodyLag(const QString& bodyKey) const
+{
+    const int node = m_nodeByKey.value(bodyKey, -1);
+    return node >= 0 && node < m_nodeStates.size() ? m_nodeStates[node].paused : 0.0;
+}
+
 QPointF GalaxyView::blackHoleScreenPosition() const
 {
     for (const auto& shape : m_hitShapes) {
@@ -998,14 +1006,37 @@ void GalaxyView::tick()
         // moon or ring together with its planet, or a hovered profile (its planets, and its place in the galaxy).
         const Hit hovered = m_hover;
         const int hoveredSystem = hovered.type == HitType::System && hovered.index < m_systems.size() ? hovered.index : -1;
-        if (hovered.type == HitType::Body && hovered.index < m_nodeStates.size()) {
-            m_nodeStates[hovered.index].paused += dt;
-            const int parent = m_layout.nodes[hovered.index].parent;
-            if (parent >= 0 && parent < m_nodeStates.size()) {
-                m_nodeStates[parent].paused += dt;
+        const int hoveredNode = hovered.type == HitType::Body && hovered.index < m_nodeStates.size() ? hovered.index : -1;
+        const int hoveredParent = hoveredNode >= 0 ? m_layout.nodes[hoveredNode].parent : -1;
+        // A body falls behind (stays still) while it is hovered, but never so far that it would reach a neighbour on
+        // its orbit; once the cursor leaves, it moves a little faster until it is back in its place.
+        QHash<std::pair<int, int>, int> onOrbit;
+        for (const auto& node : m_layout.nodes) {
+            onOrbit[{ node.parent, node.orbit }]++;
+        }
+        const QList<int> exile = exileSlots();
+        const auto exiled = std::count_if(exile.begin(), exile.end(), [](int slot) { return slot >= 0; });
+        for (int n = 0; n < m_nodeStates.size() && n < m_layout.nodes.size(); n++) {
+            const auto& node = m_layout.nodes[n];
+            auto& state = m_nodeStates[n];
+            if (n == hoveredNode || n == hoveredParent) {
+                const qreal spacing = 2 * M_PI / std::max(1, onOrbit.value({ node.parent, node.orbit }));
+                qreal maxLag = 0.4 * spacing / std::max(1e-3, std::abs(node.speed));
+                if (exile.value(n, -1) >= 0) {
+                    maxLag = std::min(maxLag, 0.4 * (2 * M_PI / std::max<qsizetype>(1, exiled)) / ExileSpeed);
+                }
+                state.paused = std::max(state.paused, std::min(state.paused + dt, maxLag));
+            } else if (state.paused > 0) {
+                state.paused = std::max(0.0, state.paused - dt * BodyCatchUpRate);
             }
-        } else if (hoveredSystem >= 0) {
-            m_systems[hoveredSystem].paused += dt;
+        }
+        for (int i = 0; i < m_systems.size(); i++) {
+            auto& node = m_systems[i];
+            if (i == hoveredSystem) {
+                node.paused += dt;  // the whole mini system stops together, so nothing can collide
+            } else if (node.paused > 0) {
+                node.paused = std::max(0.0, node.paused - dt * BodyCatchUpRate);
+            }
         }
         m_galaxyTime += dt;
         // A hovered profile falls behind the galaxy's rotation (it stays still) and catches up after; it only moves
@@ -1782,6 +1813,22 @@ void GalaxyView::paintGalaxyLayer(QPainter& p, qreal fade)
     }
 }
 
+QList<int> GalaxyView::exileSlots() const
+{
+    // Disabled content, in node order; a ring on a disabled planet goes with its planet.
+    QList<int> places(m_layout.nodes.size(), -1);
+    int next = 0;
+    for (int n = 0; n < m_layout.nodes.size(); n++) {
+        const auto& node = m_layout.nodes[n];
+        const bool parentExiled = node.parent >= 0 && node.parent < n && places[node.parent] >= 0;
+        if (node.body < m_bodies.size() &&
+            (!m_bodies[node.body].enabled || (node.role == GalaxyLayout::Node::Role::Ring && parentExiled))) {
+            places[n] = next++;
+        }
+    }
+    return places;
+}
+
 void GalaxyView::paintMiniSystem(QPainter& p, int index, QPointF c, qreal zoom, qreal launchT, bool hovered)
 {
     // A profile as the galaxy shows it: its sun with the largest mods on a few orbits (also used for the profiles
@@ -1967,16 +2014,8 @@ void GalaxyView::paintSystemLayer(QPainter& p, qreal alpha, QPointF origin, qrea
 
     // Disabled content does not go into the sun or the nebula: it moves out to one shared orbit beyond the others
     // while the game launches and runs, and comes back when it stops. Rings of a disabled planet go with it.
-    QList<int> exiled;
-    QList<int> exileSlot(m_layout.nodes.size(), -1);
-    for (int n = 0; n < m_layout.nodes.size(); n++) {
-        const auto& node = m_layout.nodes[n];
-        const bool parentExiled = node.parent >= 0 && node.parent < n && exileSlot[node.parent] >= 0;
-        if (!m_bodies[node.body].enabled || (node.role == GalaxyLayout::Node::Role::Ring && parentExiled)) {
-            exileSlot[n] = static_cast<int>(exiled.size());
-            exiled.append(n);
-        }
-    }
+    const QList<int> exileSlot = exileSlots();
+    const auto exiledCount = std::count_if(exileSlot.begin(), exileSlot.end(), [](int slot) { return slot >= 0; });
     qreal exileWeight = 0;
     if (launchMotion) {
         exileWeight = easeInOut(clamp01(launchT / 0.7)) * (1 - easeInOut(clamp01((launchT - (LaunchDuration - 0.4)) / 0.4)));
@@ -1990,7 +2029,8 @@ void GalaxyView::paintSystemLayer(QPainter& p, qreal alpha, QPointF origin, qrea
         if (node.role == GalaxyLayout::Node::Role::Ring && node.parent >= 0 && exileSlot[node.parent] >= 0) {
             n = node.parent;  // a ring stays around its planet
         }
-        const qreal angle = 2 * M_PI * exileSlot[n] / std::max<qsizetype>(1, exiled.size()) + 0.04 * m_orbitTime;
+        const qreal paused = n < m_nodeStates.size() ? m_nodeStates[n].paused : 0.0;  // stops when hovered, like the rest
+        const qreal angle = 2 * M_PI * exileSlot[n] / std::max<qsizetype>(1, exiledCount) + ExileSpeed * (m_orbitTime - paused);
         return QPointF(exileRadius * std::cos(angle), exileRadius * std::sin(angle));
     };
 
@@ -2034,6 +2074,11 @@ void GalaxyView::paintSystemLayer(QPainter& p, qreal alpha, QPointF origin, qrea
         if (node.role == GalaxyLayout::Node::Role::Ring) {
             pl.r = std::max(1.0, node.radius * zoom * pl.scale);
         }
+    }
+
+    // The shared orbit of disabled content, while the system is a nebula.
+    if (m_showOrbits && q >= 1 && exiledCount > 0 && nebula.active() && exileWeight > 0.01) {
+        CelestialPainter::drawOrbit(p, origin, exileRadius * zoom, exileRadius * zoom * TiltSin, OrbitColor, 0.16 * exileWeight);
     }
 
     // Moon orbits around their host.

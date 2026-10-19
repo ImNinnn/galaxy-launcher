@@ -52,6 +52,7 @@
 
 #include "Application.h"
 #include "Json.h"
+#include "modplatform/modrinth/ModrinthAPI.h"
 #include "ui/dialogs/ResourceDownloadDialog.h"
 #include "ui/pages/modplatform/ResourceModel.h"
 #include "ui/widgets/ProjectItem.h"
@@ -127,6 +128,39 @@ ResourcePage::~ResourcePage()
 {
     delete m_ui;
     delete m_model;
+}
+
+void ResourcePage::enablePackFilter(ModFilterWidget* widget, const QString& categoryType, const QList<ModPlatform::Category>& extraCategories)
+{
+    m_desc.supportsFiltering = true;
+    widget->setPackMode();
+    if (auto* old = m_ui->splitter->replaceWidget(0, widget)) {
+        old->deleteLater();
+    }
+    m_packFilterWidget.reset(widget);
+    m_model->setPackFilter(widget->getFilter());
+    connect(widget, &ModFilterWidget::filterChanged, this, &ResourcePage::triggerSearch);
+    connect(m_ui->resourceFilterButton, &QPushButton::clicked, this,
+            [this] { m_packFilterWidget->setHidden(!m_packFilterWidget->isHidden()); });
+    m_ui->resourceFilterButton->setVisible(true);
+
+    // Galaxy Launcher uses Modrinth only; its categories are listed per project type.
+    auto [task, response] = ModrinthAPI::get().getModCategories();
+    m_packCategoriesTask = task;
+    connect(task.get(), &Task::succeeded, this, [this, response, categoryType, extraCategories] {
+        m_packFilterWidget->setCategories(extraCategories + ModrinthAPI::loadCategories(*response, categoryType));
+    });
+    task->start();
+}
+
+bool ResourcePage::takePackFilter()
+{
+    if (!m_packFilterWidget) {
+        return false;
+    }
+    const bool changed = m_packFilterWidget->changed();
+    m_model->setPackFilter(m_packFilterWidget->getFilter());
+    return changed;
 }
 
 void ResourcePage::retranslate()
