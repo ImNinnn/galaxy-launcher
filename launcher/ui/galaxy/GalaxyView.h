@@ -17,6 +17,8 @@
 
 #pragma once
 
+class QToolButton;
+
 #include <QColor>
 #include <QElapsedTimer>
 #include <QHash>
@@ -99,6 +101,10 @@ class GalaxyView : public QWidget {
     QPointF blackHoleScreenPosition() const;
     /** Seconds of orbit a body is behind its place (it stopped while hovered and is catching up). For tests. */
     qreal bodyLag(const QString& bodyKey) const;
+    /** The camera's zoom now, relative to the galaxy view's (1 = the whole galaxy). For tests. */
+    qreal zoomOverGalaxy() const { return currentGalaxyCamera().zoom / m_galaxyCamera.zoom; }
+    /** How far a search has turned a body's sparkle back into the body (0 to 1) while its profile is a nebula. For tests. */
+    qreal bodyReveal(const QString& bodyKey) const;
     /** The key of the body a click at 'pos' would pick (empty for the sun, a system or nothing). */
     QString bodyKeyAt(const QPointF& pos) const;
 
@@ -111,6 +117,7 @@ class GalaxyView : public QWidget {
     void bodyActivated(const QString& instanceId, const CelestialBody& body);
     void bodyContextMenuRequested(const QString& instanceId, const CelestialBody& body, const QPoint& globalPos);
     void createProfileRequested();
+    void createCategoryRequested();
     void importProfileRequested();
     /** Profile names, colors or running states changed. */
     void profilesUpdated();
@@ -149,6 +156,7 @@ class GalaxyView : public QWidget {
         QPointer<MinecraftInstance> instance;
         QString name;
         QString subtitle;
+        QString category;  ///< Prism's instance group; empty for none.
         QColor color;
         QPointF pos;      ///< Target position on the galaxy plane.
         QPointF fromPos;  ///< Position when the last move started.
@@ -157,15 +165,23 @@ class GalaxyView : public QWidget {
         bool running = false;
         qreal paused = 0;  ///< Orbit time this system's planets spent paused (hovered).
         qreal lag = 0;     ///< Galactic rotation time this system is behind: it stays still while hovered, then catches up.
+        qreal pausedVelocity = 0;  ///< The slingshot back after a hover (see springBack()).
+        qreal lagVelocity = 0;
     };
 
     /** Animated per-node state for the entered system. */
     struct NodeState {
-        qreal radiusOffset = 0;  ///< Decays to zero after a relayout so bodies glide to their new orbits.
+        // After a relayout a body glides to its new place: these offsets spring back to zero, keeping their speed when
+        // another relayout comes in meanwhile (installing several projects), so nothing jerks.
+        qreal radiusOffset = 0;
         qreal angleOffset = 0;
-        qreal tweenStart = -1;
+        qreal radiusVelocity = 0;
+        qreal angleVelocity = 0;
+        qreal pausedVelocity = 0;  ///< The slingshot after a hover (see springBack()).
+        bool settling() const { return radiusOffset != 0 || angleOffset != 0 || radiusVelocity != 0 || angleVelocity != 0; }
         qreal appearStart = -1;  ///< Fade-in start for newly installed content.
         qreal paused = 0;        ///< Orbit time spent paused while hovered.
+        qreal reveal = 0;        ///< In a nebula: 1 when a search shows this sparkle as its body again.
     };
 
     enum class HitType { None, System, Sun, Body, BlackHole };
@@ -215,6 +231,28 @@ class GalaxyView : public QWidget {
     Camera systemApproachCamera(int systemIndex) const;
     Camera currentGalaxyCamera() const;
     qreal systemFitZoom() const;
+    /** The zoom at which a system with this layout fills the view (systemApproachCamera()'s zoom). */
+    qreal approachZoom(const GalaxyLayout::SystemLayout& layout) const;
+
+    // Switching from one entered system to another: a direct flight with a slight zoom out on the way, not out to the
+    // galaxy and back in. The old system fades out in the first half, the new one in during the second.
+    struct Switch {
+        QString fromId;
+        QString toId;
+        qreal start = -1;
+        qreal duration = 1.3;
+        bool swapped = false;  ///< The new system's content is shown (from halfway).
+        qreal fromZoom = 1;    ///< Camera zooms at both ends (logarithmic interpolation).
+        qreal toZoom = 1;      ///< Estimated from the new system's content when the flight starts...
+        qreal toZoomActual = 1;  ///< ...and corrected once it is shown, over the second half.
+        bool active() const { return start >= 0; }
+    };
+    Switch m_switch;
+    std::unique_ptr<SystemContent> m_nextContent;
+    void startSwitch(int targetIndex);
+    void finishSwitchHalf();
+    qreal switchProgress() const;
+    Camera switchCamera() const;
     QPointF projectGalaxy(const Camera& cam, qreal x, qreal y, qreal z) const;
     QPointF systemPosition(int index) const;
     QPointF systemPosition(int index, qreal lag) const;
@@ -267,6 +305,7 @@ class GalaxyView : public QWidget {
 
     // Systems
     QList<SystemNode> m_systems;
+    QList<GalaxyLayout::Cluster> m_clusters;  ///< Profile categories, drawn as faint areas with their name.
     QTimer m_systemsRebuildTimer;
     QHash<QString, OverviewSummary> m_summaryCache;
     QString m_selectedId;
@@ -316,8 +355,15 @@ class GalaxyView : public QWidget {
     void updatePasser(qreal t);
     void paintPasser(QPainter& p, qreal alpha);
     void paintMiniSystem(QPainter& p, int index, QPointF center, qreal zoom, qreal launchT, bool hovered);
-    /** Per node of the entered system: its place on the shared orbit of disabled content, or -1 (see paintSystemLayer). */
-    QList<int> exileSlots() const;
+    void paintClusters(QPainter& p, const Camera& cam, qreal fade);
+    /** Where the entered system's disabled content goes while its game launches and runs (see paintSystemLayer). */
+    struct ExilePlan {
+        QList<int> slot;  ///< Per node: its place on the shared orbit of disabled content, or -1.
+        QList<int> host;  ///< Per ring node: the exiled node it goes around, or -1.
+        int count = 0;    ///< Places on the shared orbit.
+        bool exiled(int n) const { return slot.value(n, -1) >= 0 || host.value(n, -1) >= 0; }
+    };
+    ExilePlan exilePlan() const;
 
     // A playing profile's sun becomes a nebula and its content sparkles; it reforms when the game stops.
     struct NebulaState {
@@ -335,6 +381,17 @@ class GalaxyView : public QWidget {
     QHash<QString, NebulaState> m_nebulae;
     void syncNebulae();
     NebulaMix nebulaMix(const QString& instanceId) const;
+    /** 1 when a search inside the entered system's nebula matches node n (its sparkle shows its body), else 0. */
+    qreal revealTarget(int n) const;
+
+    // Accessibility (Settings › Galaxy): zoom and reset buttons at the bottom left.
+    void zoomStep(int direction);
+    void resetView();
+    void placeViewButtons();
+    QWidget* m_viewButtons = nullptr;
+    QToolButton* m_zoomInButton = nullptr;
+    QToolButton* m_zoomOutButton = nullptr;
+    QToolButton* m_resetViewButton = nullptr;
     bool nebulaAnimating() const;
     /** 0 while the entered profile launches or plays (its sparkles are unnamed), 1 otherwise. */
     qreal labelTarget() const;
@@ -366,6 +423,7 @@ class GalaxyView : public QWidget {
     bool m_reducedMotion = false;
     bool m_orbitAnimation = true;
     bool m_showOrbits = true;
+    bool m_categoryOutlines = true;
     bool m_backgroundMotion = true;
     int m_renderQuality = 2;
     int m_starfieldQuality = 2;

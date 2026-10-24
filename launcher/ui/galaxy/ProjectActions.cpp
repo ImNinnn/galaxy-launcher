@@ -18,6 +18,8 @@
 #include "ProjectActions.h"
 
 #include "DiscoverWindow.h"
+#include "ModCategories.h"
+#include "Notifications.h"
 #include "UpdateChecker.h"
 #include "UpdatesDialog.h"
 
@@ -210,29 +212,73 @@ void openBaseGameMenu(QWidget* parent, MinecraftInstance* instance, const Celest
 
 }  // namespace
 
-/** Runs the download tasks of an accepted ResourceDownloadDialog, like the instance window's pages do. */
-void runDownloads(QWidget* parent, ResourceDownload::ResourceDownloadDialog* dialog, ResourceFolderModel* rawModel)
+namespace {
+
+/**
+ * Runs downloads in the background, shown as a progress notification (with Cancel) that turns into the result:
+ * done, done with warnings, cancelled or the error. `done` runs first, on the GUI thread, however it ended.
+ */
+void runWithNotification(const shared_qobject_ptr<ConcurrentTask>& tasks,
+                         const QString& running,
+                         const QString& finished,
+                         const QString& failed,
+                         std::function<void()> done)
+{
+    const int id = Notifications::instance()->track(tasks.get(), running, tr("Cancel"));
+    auto holder = std::make_shared<shared_qobject_ptr<ConcurrentTask>>(tasks);  // released once handled
+    QObject::connect(tasks.get(), &Task::finished, qApp, [holder, id, running, finished, failed, done = std::move(done)] {
+        auto* task = holder->get();
+        if (done) {
+            done();
+        }
+        Notifications::Notification result;
+        result.system = true;
+        if (task->wasSuccessful()) {
+            const auto warnings = task->warnings();
+            result.kind = warnings.isEmpty() ? Notifications::Kind::Success : Notifications::Kind::Warning;
+            result.title = finished;
+            result.text = warnings.join('\n');
+        } else if (task->getState() == Task::State::AbortedByUser) {
+            result.kind = Notifications::Kind::Info;
+            result.title = tr("Cancelled");
+            result.text = running;
+            result.system = false;
+        } else {
+            result.kind = Notifications::Kind::Error;
+            result.title = failed;
+            result.text = task->failReason();
+        }
+        Notifications::instance()->replace(id, result);
+        holder->reset();
+    });
+    tasks->start();
+}
+
+QString profileName(ResourceFolderModel* model)
+{
+    return model && model->instance() ? model->instance()->name() : QString();
+}
+
+}  // namespace
+
+/** Runs the download tasks of an accepted ResourceDownloadDialog in the background (a notification shows progress). */
+void runDownloads([[maybe_unused]] QWidget* parent, ResourceDownload::ResourceDownloadDialog* dialog, ResourceFolderModel* rawModel)
 {
     QPointer<ResourceFolderModel> model(rawModel);
-    ConcurrentTask tasks(tr("Download"), APPLICATION->settings()->get("NumberOfConcurrentDownloads").toInt());
-    QObject::connect(&tasks, &Task::failed, parent, [parent](const QString& reason) {
-        CustomMessageBox::selectable(parent, tr("Error"), reason, QMessageBox::Critical)->show();
-    });
-    QObject::connect(&tasks, &Task::succeeded, parent, [parent, &tasks] {
-        const auto warnings = tasks.warnings();
-        if (!warnings.isEmpty()) {
-            CustomMessageBox::selectable(parent, tr("Warnings"), warnings.join('\n'), QMessageBox::Warning)->show();
-        }
-    });
-    for (auto& task : dialog->getTasks()) {
-        tasks.addTask(task);
+    auto tasks = makeShared<ConcurrentTask>(tr("Download"), APPLICATION->settings()->get("NumberOfConcurrentDownloads").toInt());
+    const auto downloads = dialog->getTasks();
+    for (const auto& task : downloads) {
+        tasks->addTask(task);
     }
-    ProgressDialog progress(parent);
-    progress.showSkipButton();
-    progress.execWithTask(&tasks);
-    if (model) {
-        model->update();
-    }
+    const auto count = static_cast<int>(downloads.size());
+    const auto profile = profileName(rawModel);
+    runWithNotification(tasks, tr("Installing %n project(s) into %1", nullptr, count).arg(profile),
+                        tr("Installed %n project(s) into %1", nullptr, count).arg(profile), tr("Couldn't install everything into %1").arg(profile),
+                        [model] {
+                            if (model) {
+                                model->update();
+                            }
+                        });
 }
 
 void activate(QWidget* parent, MinecraftInstance* instance, const CelestialBody& body)
@@ -320,6 +366,9 @@ void showDetails(QWidget* parent, MinecraftInstance* instance, const CelestialBo
 
     add(tr("Name:"), body.name);
     add(tr("Type:"), CelestialBody::kindName(body.kind));
+    if (body.kind == CelestialBody::Kind::Mod) {
+        add(tr("Category:"), ModCategories::kindName(body.modKind));
+    }
     if (body.kind == CelestialBody::Kind::BaseGame) {
         add(tr("Minecraft:"), body.version);
         add(tr("Mod loader:"), body.description.isEmpty() ? tr("None (vanilla)") : body.description);
@@ -536,27 +585,32 @@ void update(QWidget* parent, MinecraftInstance* instance, const CelestialBody& b
     if (dialog.exec() == 0) {
         return;
     }
-    ConcurrentTask tasks(tr("Update"), APPLICATION->settings()->get("NumberOfConcurrentDownloads").toInt());
-    QObject::connect(&tasks, &Task::failed, parent, [parent](const QString& reason) {
-        CustomMessageBox::selectable(parent, tr("Error"), reason, QMessageBox::Critical)->show();
-    });
+    // In the background, with a notification.
+    auto tasks = makeShared<ConcurrentTask>(tr("Update"), APPLICATION->settings()->get("NumberOfConcurrentDownloads").toInt());
     const auto downloads = dialog.getTasks();
     for (const auto& task : downloads) {
-        tasks.addTask(task);
+        tasks->addTask(task);
     }
-    ProgressDialog progress(parent);
-    progress.showSkipButton();
-    progress.execWithTask(&tasks);
-    if (!body.enabled) {
-        for (const auto& task : downloads) {
-            auto* download = dynamic_cast<ResourceDownloadTask*>(task.get());
-            if (download && download->getPack() && download->getPack()->name == body.name && download->wasSuccessful()) {
-                keepDisabled(model, download);
-            }
-        }
-    }
-    model->update();
-    UpdateChecker::instance()->check(instance, true);  // once the folder has reloaded
+    QPointer<ResourceFolderModel> guardedModel(model);
+    QPointer<MinecraftInstance> guardedInstance(instance);
+    runWithNotification(tasks, tr("Updating %1").arg(body.name), tr("Updated %1").arg(body.name), tr("Couldn't update %1").arg(body.name),
+                        [downloads, guardedModel, guardedInstance, enabled = body.enabled, name = body.name] {
+                            if (!guardedModel) {
+                                return;
+                            }
+                            if (!enabled) {
+                                for (const auto& task : downloads) {
+                                    auto* download = dynamic_cast<ResourceDownloadTask*>(task.get());
+                                    if (download && download->getPack() && download->getPack()->name == name && download->wasSuccessful()) {
+                                        keepDisabled(guardedModel, download);
+                                    }
+                                }
+                            }
+                            guardedModel->update();
+                            if (guardedInstance) {
+                                UpdateChecker::instance()->check(guardedInstance, true);  // once the folder has reloaded
+                            }
+                        });
 }
 
 void updateAll(QWidget* parent, MinecraftInstance* instance)
@@ -578,31 +632,39 @@ void updateAll(QWidget* parent, MinecraftInstance* instance)
         return;
     }
 
-    ConcurrentTask tasks(tr("Update"), APPLICATION->settings()->get("NumberOfConcurrentDownloads").toInt());
-    QObject::connect(&tasks, &Task::failed, parent, [parent](const QString& reason) {
-        CustomMessageBox::selectable(parent, tr("Error"), reason, QMessageBox::Critical)->show();
-    });
-    QSet<ResourceFolderModel*> models;
+    // In the background, with a notification.
+    auto tasks = makeShared<ConcurrentTask>(tr("Update"), APPLICATION->settings()->get("NumberOfConcurrentDownloads").toInt());
+    QList<QPointer<ResourceFolderModel>> models;
+    int count = 0;
     for (const auto& update : chosen) {
         if (update.model && update.download) {
-            tasks.addTask(update.download);
-            models.insert(update.model);
+            tasks->addTask(update.download);
+            count++;
+            if (!models.contains(update.model)) {
+                models.append(update.model);
+            }
         }
     }
     // The download tasks run once; a fresh check (after the folders reload) finds anything left.
     UpdateChecker::instance()->discardPending(instance->id());
-    ProgressDialog progress(parent);
-    progress.showSkipButton();
-    progress.execWithTask(&tasks);
-    for (const auto& update : chosen) {
-        if (!update.enabled && update.download && update.download->wasSuccessful()) {
-            keepDisabled(update.model, update.download.get());
-        }
-    }
-    for (auto* model : models) {
-        model->update();
-    }
-    UpdateChecker::instance()->check(instance, true);
+    QPointer<MinecraftInstance> guardedInstance(instance);
+    runWithNotification(tasks, tr("Updating %n project(s) in %1", nullptr, count).arg(instance->name()),
+                        tr("Updated %n project(s) in %1", nullptr, count).arg(instance->name()),
+                        tr("Couldn't update everything in %1").arg(instance->name()), [chosen, models, guardedInstance] {
+                            for (const auto& update : chosen) {
+                                if (!update.enabled && update.model && update.download && update.download->wasSuccessful()) {
+                                    keepDisabled(update.model, update.download.get());
+                                }
+                            }
+                            for (const auto& model : models) {
+                                if (model) {
+                                    model->update();
+                                }
+                            }
+                            if (guardedInstance) {
+                                UpdateChecker::instance()->check(guardedInstance, true);
+                            }
+                        });
 }
 
 void openDownloadDialog(QWidget* parent, MinecraftInstance* instance, Category category, const QString& searchTerm)

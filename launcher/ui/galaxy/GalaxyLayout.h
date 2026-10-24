@@ -75,7 +75,11 @@ constexpr qreal OverviewSunRadius = 0.3;
 
 struct Params {
     qreal objectScale = 1.0;  ///< User scaling for body sizes (Settings > Galaxy).
+    std::uint32_t seed = 0;   ///< Varies each orbit's speed per profile (see orbitSpeedFactor).
 };
+
+/** A stable factor between 0.55 and 1.55 for an orbit's speed, so each orbit turns at its own pace. */
+qreal orbitSpeedFactor(std::uint32_t seed, int orbit);
 
 /** Maps a byte size to [0, 1] on a log scale between lo and hi. Unknown sizes (< 0) map to UnknownSizeFraction. */
 qreal sizeFraction(qint64 bytes, qint64 lo, qint64 hi);
@@ -119,5 +123,19 @@ QList<QPointF> layoutGalaxy(int count, qreal spacingFactor = 1.0);
 
 /** Distance between neighbouring systems for a spacing factor, in galaxy units. */
 qreal systemSpacing(qreal spacingFactor);
+
+/** The systems of one profile category, gathered in one part of the galaxy. */
+struct Cluster {
+    QString name;
+    QPointF center;
+    qreal radius = 0;  ///< Reaches just past the overview discs of its outer systems.
+};
+
+/**
+ * Like layoutGalaxy, but the systems of one category (`groups[i]`, empty for none) stay together: each category is a
+ * small sunflower of its own, and the categories and the systems without one share the galaxy's spiral (larger
+ * categories nearer the black hole). Without any category this is exactly layoutGalaxy.
+ */
+QList<QPointF> layoutGalaxyClusters(const QStringList& groups, qreal spacingFactor = 1.0, QList<Cluster>* clusters = nullptr);
 
 }  // namespace GalaxyLayout

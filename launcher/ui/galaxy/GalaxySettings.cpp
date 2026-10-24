@@ -43,6 +43,13 @@ void registerSettings(SettingsObject* settings)
     settings->registerSetting(UpdateChecks, true);
     settings->registerSetting(SystemTitleBar, false);
     settings->registerSetting(DiscordPresence, true);
+    settings->registerSetting(CategoryOutlines, true);
+    settings->registerSetting(ProfileOrder, QString());
+    settings->registerSetting(EmptyCategories, QString());
+    settings->registerSetting(SidebarOrder, QString());
+    settings->registerSetting(SystemNotifications, true);
+    settings->registerSetting(ZoomButtons, false);
+    settings->registerSetting(ResetViewButton, false);
 }
 
 QString initialView(SettingsObject* settings)

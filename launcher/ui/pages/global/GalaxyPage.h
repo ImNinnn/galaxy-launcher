@@ -48,6 +48,10 @@ class GalaxyPage : public QWidget, public BasePage {
     QCheckBox* m_orbitAnimation = nullptr;
     QCheckBox* m_backgroundMotion = nullptr;
     QCheckBox* m_showOrbits = nullptr;
+    QCheckBox* m_zoomButtons = nullptr;
+    QCheckBox* m_resetViewButton = nullptr;
+    QCheckBox* m_systemNotifications = nullptr;
+    QCheckBox* m_categoryOutlines = nullptr;
     QCheckBox* m_updateChecks = nullptr;
     QCheckBox* m_systemTitleBar = nullptr;
     QCheckBox* m_discordPresence = nullptr;

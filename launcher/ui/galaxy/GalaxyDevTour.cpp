@@ -21,11 +21,17 @@
 #include <QApplication>
 #include <QDir>
 #include <QElapsedTimer>
+#include <QFile>
+#include <QFrame>
+#include <QLineF>
+#include <QListView>
 #include <QMenu>
 #include <QMessageBox>
+#include <QMimeData>
 #include <QMouseEvent>
 #include <QNetworkReply>
 #include <QPushButton>
+#include <QStackedWidget>
 #include <QTabWidget>
 #include <QTimer>
 #include <QTreeView>
@@ -36,9 +42,14 @@
 
 #include "Application.h"
 #include "BuildConfig.h"
+#include "DiscoverWindow.h"
 #include "GalaxySettings.h"
+#include "GalaxySidebar.h"
 #include "GalaxyView.h"
+#include "ui/dialogs/MSALoginDialog.h"
 #include "MicrosoftLoginSetup.h"
+#include "Notifications.h"
+#include "ProfileOrganizer.h"
 #include "ProjectActions.h"
 #include "InstanceList.h"
 #include "launch/LaunchTask.h"
@@ -235,6 +246,21 @@ void runLaunchTest(MainWindow* window, GalaxyView* galaxy, const QString& direct
                 }
                 qInfo() << "Nebula hit test:" << picked << "of" << sparkles << "sparkles pick themselves," << overSun << "near the sun"
                         << (picked == sparkles ? "PASSED" : "FAILED");
+                // Searching in the nebula turns the matching sparkle back into its body; clearing the search undoes it.
+                const auto bodies = galaxy->currentBodies();
+                const auto first = bodies.first();
+                galaxy->setFilter(first.name);
+                QTimer::singleShot(1000, window, [window, galaxy, directory, key = first.key] {
+                    window->grab().save(QDir(directory).filePath("16c-nebula-search.png"));
+                    const qreal shown = galaxy->bodyReveal(key);
+                    galaxy->setFilter(QString());
+                    QTimer::singleShot(1000, window, [window, galaxy, directory, key, shown] {
+                        window->grab().save(QDir(directory).filePath("16d-nebula-search-cleared.png"));
+                        const qreal back = galaxy->bodyReveal(key);
+                        qInfo() << "Nebula search test: revealed" << shown << "then" << back
+                                << (shown > 0.99 && back < 0.01 ? "PASSED" : "FAILED");
+                    });
+                });
             });
         }
         const bool running = instance->isRunning();
@@ -311,6 +337,102 @@ void runLaunchTest(MainWindow* window, GalaxyView* galaxy, const QString& direct
 }  // namespace
 
 namespace {
+/** A task that pretends to download for a second, for the progress window test. */
+class DemoTask : public Task {
+   protected:
+    void executeTask() override
+    {
+        setStatus(QStringLiteral("Downloading example files"));
+        setProgress(10, 100);
+        QTimer::singleShot(400, this, [this] { setProgress(60, 100); });
+        QTimer::singleShot(1000, this, [this] { emitSucceeded(); });
+    }
+};
+
+/** Prism's progress window shows as a notification: no window opens, the call still waits and reports success. */
+void runProgressWindowTest(MainWindow* window, const QString& directory)
+{
+    DemoTask task;
+    auto seen = std::make_shared<bool>(false);
+    QTimer::singleShot(500, window, [window, directory, seen] {
+        window->grab().save(QDir(directory).filePath("20a-progress-notification.png"));
+        const auto active = Notifications::instance()->active();
+        const bool notification = std::any_of(active.begin(), active.end(), [](const Notifications::Notification& n) {
+            return n.kind == Notifications::Kind::Progress && n.title == QStringLiteral("Downloading example files");
+        });
+        *seen = notification && !QApplication::activeModalWidget();
+    });
+    ProgressDialog dialog(window);
+    const int result = dialog.execWithTask(&task);
+    qInfo() << "Progress window test: notification instead of a window" << *seen << "result accepted" << (result == QDialog::Accepted)
+            << (*seen && result == QDialog::Accepted ? "PASSED" : "FAILED");
+}
+
+/**
+ * Drags (through the sidebar model's own drop handling) a profile without a category within its section and then onto
+ * the first category header, checks the order and the category, and puts everything back. Needs a category.
+ */
+void runSidebarDropTest(QWidget* sidebar)
+{
+    auto* list = sidebar->findChild<QListView*>("galaxyProfileList");
+    auto* model = list ? list->model() : nullptr;
+    if (!model) {
+        return;
+    }
+    auto isHeader = [model](int row) { return model->index(row, 0).data(GalaxySidebar::CategoryHeaderRole).toBool(); };
+    QList<int> loose;
+    int header = -1;
+    for (int r = 0; r < model->rowCount(); r++) {
+        if (isHeader(r)) {
+            header = header < 0 ? r : header;
+        } else if (header < 0) {
+            loose << r;
+        }
+    }
+    if (header < 0 || loose.size() < 3) {
+        qInfo() << "Sidebar drop test: skipped (needs a category and three profiles without one before it)";
+        return;
+    }
+    // The view must accept drops between rows, not only onto headers.
+    const bool betweenRows = model->flags(QModelIndex()).testFlag(Qt::ItemIsDropEnabled);
+    auto* organizer = ProfileOrganizer::instance();
+    const auto orderBefore = organizer->order();
+    const auto topBefore = organizer->topOrder();
+    const QString first = model->index(loose[0], 0).data(InstanceList::InstanceIDRole).toString();
+    const QString second = model->index(loose[1], 0).data(InstanceList::InstanceIDRole).toString();
+    const QString category = model->index(header, 0).data(Qt::DisplayRole).toString();
+
+    // Reorder: the first profile between the second and the third.
+    std::unique_ptr<QMimeData> data(model->mimeData({ model->index(loose[0], 0) }));
+    model->dropMimeData(data.get(), Qt::MoveAction, loose[2], 0, {});
+    const bool reordered = organizer->order().indexOf(first) > organizer->order().indexOf(second);
+    // Into a category: onto its header.
+    model->dropMimeData(data.get(), Qt::MoveAction, -1, -1, model->index(header, 0));
+    const bool moved = APPLICATION->instances()->getInstanceGroup(first) == category;
+    // Out again, below everything (after the last category).
+    model->dropMimeData(data.get(), Qt::MoveAction, model->rowCount(), 0, {});
+    const bool outside = APPLICATION->instances()->getInstanceGroup(first).isEmpty() &&
+                         organizer->topOrder().last() == ProfileOrganizer::profileToken(first);
+    // A whole category to the top.
+    QApplication::processEvents();  // the model rebuilds after a drop
+    int headerNow = -1;
+    for (int r = 0; r < model->rowCount() && headerNow < 0; r++) {
+        if (isHeader(r) && model->index(r, 0).data(Qt::DisplayRole).toString() == category) {
+            headerNow = r;
+        }
+    }
+    std::unique_ptr<QMimeData> categoryData(model->mimeData({ model->index(headerNow, 0) }));
+    model->dropMimeData(categoryData.get(), Qt::MoveAction, 0, 0, {});
+    const bool categoryFirst = organizer->topOrder().value(0) == ProfileOrganizer::categoryToken(category);
+
+    organizer->moveToCategory({ first }, QString());
+    organizer->setOrder(orderBefore);
+    organizer->setTopOrder(topBefore);
+    const bool passed = betweenRows && reordered && moved && outside && categoryFirst;
+    qInfo() << "Sidebar drop test: between rows" << betweenRows << "reordered" << reordered << "into" << category << moved << "out" << outside
+            << "category moved" << categoryFirst << (passed ? "PASSED" : "FAILED");
+}
+
 /**
  * GALAXY_DEV_LOGIN_TEST=1: starts a real Microsoft sign-in, reads the URL the browser would open, then plays
  * Microsoft's part by sending "access denied" to the launcher's local redirect page. No browser, no account.
@@ -358,6 +480,34 @@ void runLoginTest(QObject* context)
     });
     step->perform();
 }
+
+/**
+ * GALAXY_DEV_LOGIN_TEST=2: opens the sign-in dialog, checks the device code is polled while it is open, then closes
+ * it and checks the polling stops. No browser, no account.
+ */
+void runLoginDialogTest(QObject* context)
+{
+    auto polls = std::make_shared<int>(0);
+    QObject::connect(APPLICATION->network(), &QNetworkAccessManager::finished, context, [polls](QNetworkReply* reply) {
+        if (reply->url().path().endsWith("/oauth2/v2.0/token")) {
+            ++*polls;
+        }
+    });
+    QTimer::singleShot(0, context, [] { MSALoginDialog::newAccount(nullptr); });
+    QTimer::singleShot(20000, context, [context, polls] {
+        const int whileOpen = *polls;
+        for (auto* widget : QApplication::topLevelWidgets()) {
+            if (auto* dialog = qobject_cast<MSALoginDialog*>(widget)) {
+                dialog->reject();
+            }
+        }
+        QTimer::singleShot(15000, context, [polls, whileOpen] {
+            const int afterClose = *polls - whileOpen;
+            qInfo() << "Login dialog test: polled" << whileOpen << "times while open," << afterClose << "after closing"
+                    << (whileOpen > 0 && afterClose == 0 ? "PASSED" : "FAILED");
+        });
+    });
+}
 }  // namespace
 
 void GalaxyDevTour::start(MainWindow* window, const QString& directory)
@@ -365,6 +515,8 @@ void GalaxyDevTour::start(MainWindow* window, const QString& directory)
     QDir().mkpath(directory);
     if (qEnvironmentVariableIntValue("GALAXY_DEV_LOGIN_TEST") == 1) {
         runLoginTest(window);
+    } else if (qEnvironmentVariableIntValue("GALAXY_DEV_LOGIN_TEST") == 2) {
+        runLoginDialogTest(window);
     }
     if (const auto size = qEnvironmentVariable("GALAXY_DEV_WINDOW_SIZE").split('x'); size.size() == 2) {
         window->resize(size[0].toInt(), size[1].toInt());
@@ -429,6 +581,65 @@ void GalaxyDevTour::start(MainWindow* window, const QString& directory)
               qInfo() << "Galaxy paint:" << timer.elapsed() / 30.0 << "ms per frame at" << galaxy->size();
           },
           QString() },
+        { 3600,
+          [galaxy, target] {
+              // A project added: every planet gets a new orbit and must glide there (it used to jerk). A file sorting
+              // first appears in the mods folder; the planets' speed on screen is measured while they move.
+              auto* instance = dynamic_cast<MinecraftInstance*>(APPLICATION->instances()->getInstanceById(target));
+              if (!instance) {
+                  return;
+              }
+              const QString path = QDir(instance->gameRoot() + "/mods").filePath("aaa-galaxy-tour-test.jar");
+              QFile file(path);
+              if (!file.open(QIODevice::WriteOnly)) {
+                  return;
+              }
+              file.write(QByteArray(1536 * 1024, 'x'));
+              file.close();
+              QStringList keys;
+              for (const auto& body : galaxy->currentBodies()) {
+                  if (body.kind == CelestialBody::Kind::Mod) {
+                      keys << body.key;
+                  }
+              }
+              if (keys.isEmpty()) {
+                  QFile::remove(path);
+                  qInfo() << "Relayout smoothness test: skipped (the profile has no mods)";
+                  return;
+              }
+              // Smooth means no sudden change of speed: the largest change of a planet's velocity from one frame to the
+              // next (a planet that jumps into motion changes it by thousands of pixels per second at once).
+              auto last = std::make_shared<QHash<QString, QPointF>>();
+              auto velocity = std::make_shared<QHash<QString, QPointF>>();
+              auto jolt = std::make_shared<qreal>(0);
+              auto clock = std::make_shared<QElapsedTimer>();
+              clock->start();
+              auto previous = std::make_shared<qint64>(0);
+              for (int k = 1; k <= 90; k++) {
+                  QTimer::singleShot(k * 33, galaxy, [galaxy, keys, last, velocity, jolt, clock, previous, path, k] {
+                      const qint64 at = clock->elapsed();
+                      const qreal dt = std::max<qint64>(1, at - *previous) / 1000.0;
+                      *previous = at;
+                      for (const auto& key : keys) {
+                          const QPointF now = galaxy->bodyScreenPosition(key);
+                          if (!now.isNull() && last->contains(key)) {
+                              const QPointF v = (now - last->value(key)) / dt;
+                              if (velocity->contains(key)) {
+                                  *jolt = std::max(*jolt, QLineF(velocity->value(key), v).length());
+                              }
+                              velocity->insert(key, v);
+                          }
+                          last->insert(key, now);
+                      }
+                      if (k == 90) {
+                          QFile::remove(path);
+                          qInfo() << "Relayout smoothness test: largest change of a planet's speed between frames" << *jolt
+                                  << "px/s after a project was added" << (*jolt < 1500 ? "PASSED" : "FAILED");
+                      }
+                  });
+              }
+          },
+          QString() },
         { 100,
           [window, galaxy] {
               // Focus another window, then come back: animations must resume.
@@ -460,6 +671,10 @@ void GalaxyDevTour::start(MainWindow* window, const QString& directory)
           [galaxy, bodyKey] {
               // A hovered planet stops; once the cursor leaves it catches up until it is back in its place.
               const auto key = bodyKey(CelestialBody::Kind::Mod);
+              if (key.isEmpty()) {
+                  qInfo() << "Catch-up test: skipped (the profile has no mods)";
+                  return;
+              }
               hover(galaxy, galaxy->bodyScreenPosition(key));
               QTimer::singleShot(1500, galaxy, [galaxy, key] {
                   const qreal behind = galaxy->bodyLag(key);
@@ -472,7 +687,7 @@ void GalaxyDevTour::start(MainWindow* window, const QString& directory)
               });
           },
           QString() },
-        // Switching systems from the sidebar: out to the galaxy first, then into the other system.
+        // Switching systems from the sidebar: a direct flight to the other system, never out to the whole galaxy.
         { 250,
           [galaxy, target] {
               hover(galaxy, QPointF(5, 5));
@@ -481,6 +696,20 @@ void GalaxyDevTour::start(MainWindow* window, const QString& directory)
                       galaxy->enterSystem(APPLICATION->instances()->at(i)->id());
                       break;
                   }
+              }
+              auto closest = std::make_shared<qreal>(1e9);
+              auto inSystem = std::make_shared<bool>(true);
+              const qreal start = galaxy->zoomOverGalaxy();
+              for (int k = 1; k <= 15; k++) {
+                  QTimer::singleShot(k * 100, galaxy, [galaxy, closest, inSystem, start, k] {
+                      *closest = std::min(*closest, galaxy->zoomOverGalaxy() / start);
+                      *inSystem = *inSystem && !galaxy->currentSystemId().isEmpty();
+                      if (k == 15) {
+                          // At the systems' scale all the way: at most a slight zoom out, never towards the galaxy view.
+                          qInfo() << "Switch flight test: zoom never below" << *closest << "of the system's, always in a system" << *inSystem
+                                  << (*closest > 0.6 && *inSystem ? "PASSED" : "FAILED");
+                      }
+                  });
               }
           },
           "08a-switch-leaving" },
@@ -503,8 +732,17 @@ void GalaxyDevTour::start(MainWindow* window, const QString& directory)
               const QPoint sun = galaxy->mapToGlobal(galaxy->sunScreenPosition()).toPoint();
               captureBlocking(QDir(directory).filePath("22-profile-menu.png"), [window, target, sun] { window->showProfileMenu(target, sun); });
               captureBlocking(QDir(directory).filePath("23-sun-color.png"), [window] { window->pickSunColor(); });
-              captureBlocking(QDir(directory).filePath("24-galaxy-settings.png"),
-                              [window] { APPLICATION->ShowGlobalSettings(window, "galaxy-settings"); });
+              // Settings are a page of the main window now.
+              auto settingsShot = [window, directory](const QString& page, const QString& file) {
+                  APPLICATION->ShowGlobalSettings(window, page);
+                  QApplication::processEvents();
+                  window->grab().save(QDir(directory).filePath(file));
+                  const bool embedded = window->m_settingsPanel && window->m_stack->currentWidget() == window->m_settingsPanel;
+                  const bool closed = window->closeSettingsPanel() && !window->panelShown();
+                  qInfo() << "Settings page test:" << page << "embedded" << embedded << "closed" << closed
+                          << (embedded && closed ? "PASSED" : "FAILED");
+              };
+              settingsShot("galaxy-settings", "24-galaxy-settings.png");
               captureBlocking(QDir(directory).filePath("25-microsoft-setup.png"), [window] { MicrosoftLoginSetup::ensureClientId(window); });
               captureBlocking(QDir(directory).filePath("28-help-menu.png"), [window] {
                   if (auto* help = window->findChild<QMenu*>("helpMenu")) {
@@ -522,24 +760,49 @@ void GalaxyDevTour::start(MainWindow* window, const QString& directory)
                   }
                   about.exec();
               });
-              captureBlocking(QDir(directory).filePath("30-services-settings.png"), [window] { APPLICATION->ShowGlobalSettings(window, "apis"); });
+              settingsShot("apis", "30-services-settings.png");
               // Shown when GitHub has a newer release (GALAXY_DEV_FAKE_VERSION pretends this one is old).
               if (window->m_launcherUpdateButton && window->m_launcherUpdateButton->isVisible()) {
                   window->grab().save(QDir(directory).filePath("34-launcher-update-button.png"));
                   captureBlocking(QDir(directory).filePath("35-launcher-update.png"), [window] { window->m_launcherUpdateAction->trigger(); });
               }
-              captureBlocking(QDir(directory).filePath("31-general-settings.png"),
-                              [window] { APPLICATION->ShowGlobalSettings(window, "launcher-settings"); });
+              settingsShot("launcher-settings", "31-general-settings.png");
+
+              // The profile window (with its logs) is a page of the main window too.
+              if (auto* instance = APPLICATION->instances()->getInstanceById(target)) {
+                  APPLICATION->showInstanceWindow(instance, "console");
+                  QApplication::processEvents();
+                  window->grab().save(QDir(directory).filePath("36-profile-window.png"));
+                  const bool embedded = window->m_instancePanels && window->m_stack->currentWidget() == window->m_instancePanels;
+                  const bool closed = window->leavePanels() && !window->panelShown();
+                  qInfo() << "Profile window test: embedded" << embedded << "closed" << closed << (embedded && closed ? "PASSED" : "FAILED");
+              }
           },
           QString() },
         { 6000, [window] { window->openDiscover(); }, QString() },
         { 100,
-          [directory] {
-              for (auto* top : QApplication::topLevelWidgets()) {
-                  if (top->isVisible() && top->objectName() == "galaxyDiscoverWindow") {
-                      top->grab().save(QDir(directory).filePath("26-discover-mods.png"));
-                  }
-              }
+          [window, directory] {
+              // Discover splits the main window: the galaxy and Discover side by side.
+              auto* discover = window->findChild<QWidget*>("galaxyDiscoverWindow");
+              qInfo() << "Discover split test:" << (discover && discover->isVisible() && !discover->isWindow() ? "PASSED" : "FAILED");
+              window->grab().save(QDir(directory).filePath("26-discover-mods.png"));
+
+              // Opening settings closes Discover; the settings button again closes settings; Add content toggles Discover.
+              window->on_actionSettings_triggered();
+              QApplication::processEvents();
+              const bool discoverClosed = !DiscoverWindow::isOpenBeside();
+              const bool settingsShown = window->panelShown();
+              window->on_actionSettings_triggered();
+              const bool settingsToggled = !window->panelShown();
+              window->openDiscover();
+              QApplication::processEvents();
+              const bool discoverOpened = DiscoverWindow::isOpenBeside();
+              window->openDiscover();
+              QApplication::processEvents();
+              const bool discoverToggled = !DiscoverWindow::isOpenBeside();
+              const bool passed = discoverClosed && settingsShown && settingsToggled && discoverOpened && discoverToggled;
+              qInfo() << "Panel toggle test: Discover closed by settings" << discoverClosed << "settings toggled" << settingsShown << settingsToggled
+                      << "Discover toggled" << discoverOpened << discoverToggled << (passed ? "PASSED" : "FAILED");
           },
           QString() },
         { 6000,
@@ -549,16 +812,16 @@ void GalaxyDevTour::start(MainWindow* window, const QString& directory)
           },
           QString() },
         { 100,
-          [directory] {
-              for (auto* top : QApplication::topLevelWidgets()) {
-                  if (top->isVisible() && top->objectName() == "galaxyDiscoverWindow") {
-                      top->grab().save(QDir(directory).filePath("27-discover-shaders.png"));
+          [window, directory] {
+              for (auto* top : window->findChildren<QWidget*>("galaxyDiscoverWindow")) {
+                  if (top->isVisible()) {
+                      window->grab().save(QDir(directory).filePath("27-discover-shaders.png"));
                       // The filter options, as the shader page has them (Minecraft version, shader loaders, categories).
                       for (auto* button : top->findChildren<QPushButton*>("resourceFilterButton")) {
                           if (button->isVisible()) {
                               button->click();
                               QApplication::processEvents();
-                              top->grab().save(QDir(directory).filePath("27b-discover-shader-filters.png"));
+                              window->grab().save(QDir(directory).filePath("27b-discover-shader-filters.png"));
                               break;
                           }
                       }
@@ -626,6 +889,105 @@ void GalaxyDevTour::start(MainWindow* window, const QString& directory)
           },
           QString() },
         { 1300, [] {}, "14-back" },
+        { 100, [window] { window->m_sidebar->setCollapsed(true); }, QString() },
+        { 400, [] {}, "15-sidebar-collapsed" },
+        { 100, [window] { window->m_sidebar->setCollapsed(false); }, QString() },
+        { 300,
+          [window, galaxy, directory, target] {
+              captureBlocking(QDir(directory).filePath("16-new-category.png"),
+                              [target] { ProfileOrganizer::instance()->createCategory(nullptr, target); });
+              // The galaxy's menu on empty space (top left corner).
+              captureBlocking(QDir(directory).filePath("17-galaxy-menu.png"), [galaxy] {
+                  const QPointF at(6, 6);
+                  QMouseEvent press(QEvent::MouseButtonPress, at, galaxy->mapToGlobal(at), Qt::RightButton, Qt::RightButton, Qt::NoModifier);
+                  QMouseEvent release(QEvent::MouseButtonRelease, at, galaxy->mapToGlobal(at), Qt::RightButton, Qt::NoButton, Qt::NoModifier);
+                  QApplication::sendEvent(galaxy, &press);
+                  QApplication::sendEvent(galaxy, &release);
+              });
+              runSidebarDropTest(window->m_sidebar);
+          },
+          QString() },
+        { 400, [] {}, "18-after-drop-test" },
+        { 1500, [window, directory] { runProgressWindowTest(window, directory); }, QString() },
+        { 0,
+          [] {
+              // What notifications look like (they are removed again right after the snapshot).
+              auto* notifications = Notifications::instance();
+              Notifications::Notification progress;
+              progress.kind = Notifications::Kind::Progress;
+              progress.title = QStringLiteral("Launching Fabric Adventure");
+              progress.text = QStringLiteral("Downloading assets");
+              progress.progress = 42;
+              progress.actions = { { QStringLiteral("Skip"), [] {} } };
+              notifications->post(progress);
+              notifications->post(Notifications::Kind::Success, QStringLiteral("Installed 3 projects into Fabric Adventure"), QString());
+              notifications->post(Notifications::Kind::Error, QStringLiteral("Big Modpack crashed"),
+                                  QStringLiteral("Minecraft closed unexpectedly. The log shows what happened."), { { QStringLiteral("Show log"), [] {} } });
+          },
+          QString() },
+        { 100,
+          [window] {
+              // Removing a profile's icon: the profile menu offers it for profiles with an icon of their own.
+              for (int i = 0; i < APPLICATION->instances()->count(); i++) {
+                  auto* instance = APPLICATION->instances()->at(i);
+                  if (instance->iconKey() == QStringLiteral("default")) {
+                      continue;
+                  }
+                  const auto before = instance->iconKey();
+                  window->setSelectedInstanceById(instance->id());
+                  QMenu menu;
+                  window->populateProfileMenu(&menu);
+                  QAction* remove = nullptr;
+                  for (auto* action : menu.actions()) {
+                      if (action->text() == QObject::tr("Remove Icon")) {
+                          remove = action;
+                      }
+                  }
+                  if (remove) {
+                      remove->trigger();
+                  }
+                  const bool removed = instance->iconKey() == QStringLiteral("default");
+                  instance->setIconKey(before);
+                  qInfo() << "Remove icon test:" << instance->name() << "offered" << (remove != nullptr) << "removed" << removed
+                          << (remove && removed ? "PASSED" : "FAILED");
+                  break;
+              }
+          },
+          QString() },
+        { 120, [] {}, "19a-notifications-sliding-in" },
+        { 500,
+          [window] {
+              // A card whose text and buttons change after it is shown must grow to fit them (they were cut off).
+              auto* notifications = Notifications::instance();
+              Notifications::Notification progress;
+              progress.kind = Notifications::Kind::Progress;
+              progress.title = QStringLiteral("Launching 1.8 hypixel");
+              progress.text = QStringLiteral("Getting ready…");
+              const int id = notifications->post(progress);
+              progress.text = QStringLiteral("Encountered an error during authentication, and this line is long enough to wrap");
+              progress.actions = { { QStringLiteral("Cancel"), [] {} } };
+              notifications->replace(id, progress);
+              QTimer::singleShot(400, window, [window, id] {
+                  bool fits = true;
+                  int cards = 0;
+                  for (auto* card : window->findChildren<QFrame*>("galaxyNotification")) {
+                      if (card->isVisible()) {
+                          cards++;
+                          fits = fits && card->height() >= card->heightForWidth(card->width());
+                      }
+                  }
+                  qInfo() << "Notification size test:" << cards << "cards fit their content" << fits << (fits && cards > 0 ? "PASSED" : "FAILED");
+                  Notifications::instance()->dismiss(id);
+              });
+          },
+          "19-notifications" },
+        { 120,
+          [] {
+              for (const auto& notification : Notifications::instance()->active()) {
+                  Notifications::instance()->dismiss(notification.id);
+              }
+          },
+          "19b-notifications-sliding-out" },
     });
     auto index = std::make_shared<int>(0);
     auto runner = std::make_shared<std::function<void()>>();

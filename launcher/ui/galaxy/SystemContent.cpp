@@ -35,6 +35,7 @@
 #include "minecraft/mod/ResourcePackFolderModel.h"
 #include "minecraft/mod/ShaderPackFolderModel.h"
 #include "minecraft/mod/TexturePackFolderModel.h"
+#include "ModCategories.h"
 #include "UpdateChecker.h"
 #include "modplatform/ModIndex.h"
 
@@ -174,6 +175,9 @@ CelestialBody fromResource(const Resource& res, CelestialBody::Kind kind, Resour
         body.provider = ModPlatform::ProviderCapabilities::readableName(meta->provider);
         body.projectUrl = projectUrl(res);
         body.version = meta->versionNumber;
+        if (meta->provider == ModPlatform::ResourceProvider::MODRINTH) {
+            body.modrinthId = meta->projectId.toString();
+        }
     }
 
     body.latestVersion = UpdateChecker::instance()->latestVersionFor(res);
@@ -193,6 +197,7 @@ CelestialBody fromResource(const Resource& res, CelestialBody::Kind kind, Resour
         body.description = mod->description();
         body.homepage = mod->details().homeurl;
         body.isShaderLoader = looksLikeShaderLoader(*mod);
+        body.modKind = ModCategories::instance()->kindOf(body.fileName, body.bytes);
     } else if (const auto* pack = dynamic_cast<const DataPack*>(&res)) {
         // Resource packs derive from DataPack.
         body.description = pack->description();
@@ -299,6 +304,7 @@ SystemContent::SystemContent(MinecraftInstance* instance, QObject* parent) : QOb
     }
     attachModels();
     rebuild();
+    connect(ModCategories::instance(), &ModCategories::changed, this, &SystemContent::scheduleRebuild);
     connect(UpdateChecker::instance(), &UpdateChecker::updatesChanged, this, [this](const QString& id) {
         if (m_instance && id == m_instance->id()) {
             scheduleRebuild();
@@ -441,6 +447,15 @@ void SystemContent::rebuild()
     for (const auto& attached : std::as_const(m_models)) {
         addAll(attached.model, attached.kind);
     }
+
+    // Planets are colored by what each mod is for; look up the mods not seen before.
+    QList<ModCategories::File> mods;
+    for (const auto& body : std::as_const(bodies)) {
+        if (body.kind == CelestialBody::Kind::Mod && !body.isFolder) {
+            mods.append({ body.filePath, body.bytes, body.modrinthId });
+        }
+    }
+    ModCategories::instance()->request(mods);
 
     m_bodies = bodies;
     emit changed();

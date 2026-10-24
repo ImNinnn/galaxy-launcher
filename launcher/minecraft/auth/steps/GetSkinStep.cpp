@@ -18,10 +18,12 @@ void GetSkinStep::perform()
 
     auto [request, response] = Net::Request::makeByteArray(url);
     m_request = request;
-    m_request->enableAutoRetry(true);
+    // Galaxy: sign-in requests never retry after a refusal or a rate limit, so they cannot pile up on the account.
+    m_request->enableAutoRetry(false);
 
     m_task.reset(new NetJob("GetSkinStep", APPLICATION->network()));
     m_task->setAskRetry(false);
+    m_task->setRetryRefused(false);
     m_task->addNetAction(m_request);
 
     connect(m_task.get(), &Task::finished, this, [this, response] { onRequestDone(response); });

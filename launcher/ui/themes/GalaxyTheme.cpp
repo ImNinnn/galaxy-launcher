@@ -125,7 +125,10 @@ QListView#galaxyProfileList { background: transparent; color: #ECE9FF; outline: 
 #galaxySearchBar { background-color: #120D2B; border-top: 1px solid #2C2358; }
 QLineEdit#galaxySearchEdit { background-color: #1B1540; color: #ECE9FF; border: 1px solid #3A2E6B; border-radius: 16px; padding: 6px 12px; selection-background-color: #7C4DFF; }
 QLineEdit#galaxySearchEdit:focus { border: 1px solid #A78BFA; }
-QComboBox#galaxySearchCategory { background-color: #1B1540; color: #ECE9FF; border: 1px solid #3A2E6B; border-radius: 14px; padding: 5px 12px; }
+QComboBox#galaxySearchCategory { background-color: #1B1540; color: #ECE9FF; border: 1px solid #3A2E6B; border-radius: 14px; padding: 5px 28px 5px 12px; }
+QComboBox#galaxySearchCategory::drop-down { subcontrol-origin: padding; subcontrol-position: center right; width: 24px; border: none; background: transparent; }
+QComboBox#galaxySearchCategory::down-arrow { image: url(:/galaxy/chevron-down.svg); width: 12px; height: 12px; }
+QComboBox#galaxySearchCategory::down-arrow:on { top: 1px; }
 QComboBox#galaxySearchCategory:focus { border: 1px solid #A78BFA; }
 QComboBox#galaxySearchCategory QAbstractItemView { background-color: #17122F; color: #ECE9FF; selection-background-color: #4C2FB0; border: 1px solid #3A2E6B; }
 QPushButton#galaxyPrimaryButton { background-color: #7C4DFF; color: white; border: none; border-radius: 15px; padding: 6px 16px; font-weight: 600; }
@@ -148,6 +151,13 @@ QToolButton#galaxyLaunchButton { background-color: qlineargradient(x1:0, y1:0, x
 QToolButton#galaxyLaunchButton:hover { background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #A07BFF, stop:1 #7C3AED); }
 QToolButton#galaxyLaunchButton:pressed { background-color: #5B21B6; }
 QToolButton#galaxyLaunchButton:disabled { background-color: #2A2350; color: #8A84AE; border-color: #3A2E6B; }
+QToolButton#galaxyPanelClose { background-color: rgba(248, 113, 113, 34); border: 1px solid rgba(248, 113, 113, 85); border-radius: 6px; padding: 2px 7px; color: #F3D2D2; }
+QToolButton#galaxyPanelClose:hover { background-color: rgba(248, 113, 113, 70); border-color: rgba(252, 165, 165, 150); }
+QToolButton#galaxyPanelClose:pressed { background-color: rgba(220, 38, 38, 110); }
+QToolButton#galaxyKillButton { background-color: rgba(248, 113, 113, 34); border: 1px solid rgba(248, 113, 113, 85); padding: 5px 8px; }
+QToolButton#galaxyKillButton:hover { background-color: rgba(248, 113, 113, 70); border-color: rgba(252, 165, 165, 150); }
+QToolButton#galaxyKillButton:pressed { background-color: rgba(220, 38, 38, 110); }
+QToolButton#galaxyKillButton:disabled { background-color: rgba(255, 255, 255, 8); border-color: #2C2358; }
 QToolButton#galaxyWindowButton, QToolButton#galaxyCloseButton { padding: 4px 8px; border-radius: 6px; }
 QToolButton#galaxyCloseButton:hover { background-color: #C42B1C; }
 QToolButton#galaxyCloseButton:pressed { background-color: #A1251A; }

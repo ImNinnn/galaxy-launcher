@@ -19,7 +19,11 @@
 
 AuthFlow::AuthFlow(AccountData* data, Action action) : Task(), m_data(data)
 {
-    if (data->type == AccountType::MSA) {
+    if (data->type == AccountType::MSA && action == Action::Profile) {
+        // Galaxy: after a skin or cape change, only the profile changed; the sign-in is still good.
+        m_steps.append(makeShared<MinecraftProfileStep>(m_data));
+        m_steps.append(makeShared<GetSkinStep>(m_data));
+    } else if (data->type == AccountType::MSA) {
         if (action == Action::DeviceCode) {
             auto oauthStep = makeShared<MSADeviceCodeStep>(m_data);
             connect(oauthStep.get(), &MSADeviceCodeStep::authorizeWithBrowser, this, &AuthFlow::authorizeWithBrowserWithExtra);
@@ -29,6 +33,7 @@ AuthFlow::AuthFlow(AccountData* data, Action action) : Task(), m_data(data)
             connect(oauthStep.get(), &MSAStep::authorizeWithBrowser, this, &AuthFlow::authorizeWithBrowser);
             m_steps.append(oauthStep);
         }
+        m_oauthStep = m_steps.front().get();
         m_steps.append(makeShared<XboxUserStep>(m_data));
         m_steps.append(
             makeShared<XboxAuthorizationStep>(m_data, &m_data->mojangservicesToken, "rp://api.minecraftservices.com/", "Mojang"));
@@ -74,6 +79,9 @@ void AuthFlow::nextStep()
 
 void AuthFlow::stepFinished(AccountTaskState resultingState, QString message)
 {
+    if (resultingState == AccountTaskState::STATE_WORKING && m_currentStep && m_currentStep.get() == m_oauthStep) {
+        emit microsoftSignedIn();
+    }
     if (changeState(resultingState, message))
         nextStep();
 }

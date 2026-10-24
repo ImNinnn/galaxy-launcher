@@ -113,6 +113,20 @@ int MSALoginDialog::exec()
     connect(m_devicecode_task.get(), &AuthFlow::authorizeWithBrowser, this, &MSALoginDialog::authorizeWithBrowser);
     connect(m_devicecode_task.get(), &AuthFlow::authorizeWithBrowserWithExtra, this, &MSALoginDialog::authorizeWithBrowserWithExtra);
     connect(ui->buttonBox->button(QDialogButtonBox::Cancel), &QPushButton::clicked, m_devicecode_task.get(), &Task::abort);
+
+    // Galaxy: once one way of signing in reaches Microsoft, stop the other, so the code is no longer polled.
+    connect(m_authflow_task.get(), &AuthFlow::microsoftSignedIn, this, [this] {
+        stopFlow(m_devicecode_task);
+        ui->stackedWidget->setCurrentIndex(0);
+        ui->status->setText(tr("Signed in through the browser."));
+        ui->loadingLabel->clear();
+    });
+    connect(m_devicecode_task.get(), &AuthFlow::microsoftSignedIn, this, [this] {
+        stopFlow(m_authflow_task);
+        ui->stackedWidget2->setCurrentIndex(0);
+        ui->status2->setText(tr("Signed in with the code."));
+        ui->loadingLabel2->clear();
+    });
     QMetaObject::invokeMethod(m_authflow_task.get(), &Task::start, Qt::QueuedConnection);
     QMetaObject::invokeMethod(m_devicecode_task.get(), &Task::start, Qt::QueuedConnection);
 
@@ -121,7 +135,29 @@ int MSALoginDialog::exec()
 
 MSALoginDialog::~MSALoginDialog()
 {
+    stopFlow(m_authflow_task);
+    stopFlow(m_devicecode_task);
     delete ui;
+}
+
+void MSALoginDialog::done(int result)
+{
+    // Galaxy: closing the dialog ends both sign-in flows right away.
+    stopFlow(m_authflow_task);
+    stopFlow(m_devicecode_task);
+    QDialog::done(result);
+}
+
+void MSALoginDialog::stopFlow(const shared_qobject_ptr<AuthFlow>& flow)
+{
+    if (!flow) {
+        return;
+    }
+    flow->disconnect(this);
+    disconnect(ui->buttonBox->button(QDialogButtonBox::Cancel), &QPushButton::clicked, flow.get(), &Task::abort);
+    if (flow->isRunning()) {
+        flow->abort();
+    }
 }
 
 void MSALoginDialog::onAuthFlowTaskFailed(QString reason)
@@ -132,7 +168,7 @@ void MSALoginDialog::onAuthFlowTaskFailed(QString reason)
     ui->status2->setText(formatError(reason));
     ui->loadingLabel2->setText(m_authflow_task->getStatus());
     disconnect(ui->buttonBox->button(QDialogButtonBox::Cancel), &QPushButton::clicked, m_authflow_task.get(), &Task::abort);
-    if (m_devicecode_task->getState() == Task::State::Failed) {
+    if (!m_devicecode_task->isRunning()) {
         disconnect(ui->buttonBox->button(QDialogButtonBox::Cancel), &QPushButton::clicked, m_devicecode_task.get(), &Task::abort);
         connect(ui->buttonBox->button(QDialogButtonBox::Cancel), &QPushButton::clicked, this, &MSALoginDialog::reject,
                 Qt::UniqueConnection);
@@ -147,7 +183,7 @@ void MSALoginDialog::onDeviceCodeTaskFailed(QString reason)
     ui->status->setText(formatError(reason));
     ui->loadingLabel->setText(m_devicecode_task->getStatus());
     disconnect(ui->buttonBox->button(QDialogButtonBox::Cancel), &QPushButton::clicked, m_devicecode_task.get(), &Task::abort);
-    if (m_authflow_task->getState() == Task::State::Failed) {
+    if (!m_authflow_task->isRunning()) {
         disconnect(ui->buttonBox->button(QDialogButtonBox::Cancel), &QPushButton::clicked, m_authflow_task.get(), &Task::abort);
         connect(ui->buttonBox->button(QDialogButtonBox::Cancel), &QPushButton::clicked, this, &MSALoginDialog::reject,
                 Qt::UniqueConnection);

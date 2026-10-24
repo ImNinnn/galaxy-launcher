@@ -61,6 +61,7 @@ class QFile;
 class HttpMetaCache;
 class SettingsObject;
 class InstanceList;
+class BasePageProvider;
 class AccountList;
 class IconList;
 class QNetworkAccessManager;
@@ -152,6 +153,11 @@ class Application : public QApplication {
     Meta::Index* metadataIndex();
 
     void updateCapabilities();
+
+    /** Galaxy: the settings pages, for the settings shown inside the main window. */
+    BasePageProvider* globalSettingsProvider();
+    /** Galaxy: the settings shown inside the main window were closed (applied). */
+    void globalSettingsClosed();
 
     void detectLibraries();
 

@@ -90,6 +90,9 @@ class NewInstanceDialog : public QDialog, public BasePageProvider {
     void selectedPageChanged(BasePage* previous, BasePage* selected);
 
    private:
+    void showIconChoice();
+
+   private:
     void importIconNow();
     bool eventFilter(QObject* watched, QEvent* event) override;
 

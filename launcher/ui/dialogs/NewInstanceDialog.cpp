@@ -86,7 +86,7 @@ NewInstanceDialog::NewInstanceDialog(const QString& initialGroup,
 
     setWindowIcon(QIcon::fromTheme("new"));
 
-    ui->iconButton->setIcon(APPLICATION->icons()->getIcon(m_instIconKey));
+    showIconChoice();
 
     QStringList groups = APPLICATION->instances()->getGroups();
     groups.prepend("");
@@ -267,7 +267,7 @@ void NewInstanceDialog::setSuggestedPack(const QString& name, InstanceTask* task
     m_importVersion.clear();
 
     if (!task) {
-        ui->iconButton->setIcon(APPLICATION->icons()->getIcon(m_instIconKey));
+        showIconChoice();
         m_importIcon = false;
     }
 
@@ -291,7 +291,7 @@ void NewInstanceDialog::setSuggestedPack(const QString& name, QString version, I
     m_importVersion = std::move(version);
 
     if (!task) {
-        ui->iconButton->setIcon(APPLICATION->icons()->getIcon(m_instIconKey));
+        showIconChoice();
         m_importIcon = false;
     }
 
@@ -307,6 +307,7 @@ void NewInstanceDialog::setSuggestedIconFromFile(const QString& path, const QStr
 
     // Hmm, for some reason they can be to small
     ui->iconButton->setIcon(QIcon(path));
+    ui->iconButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
 }
 
 void NewInstanceDialog::setSuggestedIcon(const QString& key)
@@ -314,13 +315,14 @@ void NewInstanceDialog::setSuggestedIcon(const QString& key)
     m_importIcon = false;
 
     if (key == "default") {
-        ui->iconButton->setIcon(APPLICATION->icons()->getIcon(m_instIconKey));
+        showIconChoice();
         return;
     }
 
     auto icon = APPLICATION->icons()->getIcon(key);
 
     ui->iconButton->setIcon(icon);
+    ui->iconButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
 }
 
 void NewInstanceDialog::selectPage(const QString& pageId)
@@ -367,6 +369,20 @@ QString NewInstanceDialog::instGroup() const
 {
     return ui->groupBox->currentText();
 }
+void NewInstanceDialog::showIconChoice()
+{
+    // Galaxy: a new profile has no icon until one is chosen (the galaxy's sidebar shows none for "default").
+    if (m_instIconKey == QStringLiteral("default")) {
+        ui->iconButton->setIcon(QIcon());
+        ui->iconButton->setText(tr("No icon\n(choose one)"));
+        ui->iconButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        ui->iconButton->setMinimumSize(96, 96);
+    } else {
+        ui->iconButton->setIcon(APPLICATION->icons()->getIcon(m_instIconKey));
+        ui->iconButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    }
+}
+
 QString NewInstanceDialog::iconKey() const
 {
     return m_instIconKey;
@@ -385,7 +401,7 @@ void NewInstanceDialog::on_iconButton_clicked()
 
     if (dlg.result() == QDialog::Accepted) {
         m_instIconKey = dlg.selectedIconKey;
-        ui->iconButton->setIcon(APPLICATION->icons()->getIcon(m_instIconKey));
+        showIconChoice();
         m_importIcon = false;
     }
 }

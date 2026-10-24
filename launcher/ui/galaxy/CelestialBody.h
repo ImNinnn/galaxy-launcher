@@ -25,6 +25,15 @@
 
 class ResourceFolderModel;
 
+/** What a mod is for, from its Modrinth categories; planets are colored by it (see ModCategories). */
+enum class ModKind : std::uint8_t {
+    Unknown,       ///< Not on Modrinth, or not looked up yet: grey.
+    Library,       ///< APIs and libraries: red and orange.
+    Optimization,  ///< Green.
+    Content,       ///< Content and world generation: blue and purple.
+    Utility,       ///< Client side and quality of life: yellow and gold.
+};
+
 /**
  * A snapshot of one piece of installed content, as read from Prism's resource models.
  *
@@ -54,6 +63,8 @@ struct CelestialBody {
 
     QString provider;    ///< "Modrinth" when Prism has download metadata for the file; empty otherwise.
     QString projectUrl;  ///< Source platform page, built only from the project ID in Prism's metadata.
+    QString modrinthId;  ///< Modrinth project ID from Prism's metadata; empty when unknown.
+    ModKind modKind = ModKind::Unknown;
     QString homepage;    ///< A homepage declared inside the file itself (e.g. fabric.mod.json), if any.
 
     qint64 bytes = -1;  ///< On-disk size; -1 when it cannot be measured (yet).

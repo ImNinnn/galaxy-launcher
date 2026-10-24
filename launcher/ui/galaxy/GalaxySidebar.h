@@ -25,16 +25,21 @@ class QLabel;
 class QListView;
 class QMenu;
 class QToolButton;
+class SidebarCategoryModel;
 
 /**
  * Left sidebar: every profile (as its sun), account management and launcher settings.
  *
- * The profile list shares Prism's instance model and selection model with the list view, so selection is always in
- * sync between the sidebar, the list view and the galaxy.
+ * Profiles with a category (Prism's instance groups) are listed under a header per category that collapses and
+ * expands them; profiles without one come first, and without any category there are no headers. The list follows
+ * Prism's selection model, so selection is always in sync between the sidebar, the list view and the galaxy.
  */
 class GalaxySidebar : public QWidget {
     Q_OBJECT
    public:
+    /** True for the category header rows of the sidebar's list (its model's data role). */
+    static constexpr int CategoryHeaderRole = Qt::UserRole + 200;
+
     GalaxySidebar(QAbstractItemModel* profiles, QItemSelectionModel* selection, QWidget* parent = nullptr);
 
     void setAccountMenu(QMenu* menu);
@@ -48,14 +53,22 @@ class GalaxySidebar : public QWidget {
     void profileActivated(const QString& instanceId);
     void profileDoubleClicked(const QString& instanceId);
     void profileContextMenuRequested(const QString& instanceId, const QPoint& globalPos);
+    void categoryContextMenuRequested(const QString& category, const QPoint& globalPos);
     void createProfileRequested();
+    void createCategoryRequested();
     void settingsRequested();
     void collapsedChanged(bool collapsed);
 
    private:
+    void selectFromShared();
+
     QListView* m_list = nullptr;
+    SidebarCategoryModel* m_model = nullptr;
+    QItemSelectionModel* m_shared = nullptr;
+    bool m_syncing = false;
     QLabel* m_title = nullptr;
     QToolButton* m_add = nullptr;
+    QToolButton* m_addCategory = nullptr;
     QToolButton* m_collapse = nullptr;
     QToolButton* m_account = nullptr;
     QToolButton* m_settings = nullptr;

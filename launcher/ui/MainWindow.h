@@ -69,6 +69,8 @@ class QSplitter;
 namespace Ui {
 class MainWindow;
 }
+class PageContainer;
+class InstanceWindow;
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -85,6 +87,15 @@ class MainWindow : public QMainWindow {
     void updatesAllowedChanged(bool allowed);
 
     void processURLs(QList<QUrl> urls);
+
+    // Galaxy: launcher settings and profile windows are pages of the main window (Discover splits the view).
+    /** Shows the settings as a page of the main window; false when it cannot (a dialog is open over it). */
+    bool showSettingsPanel(const QString& page);
+    /** Where profile windows go when they open inside the main window. */
+    QWidget* instanceHost();
+    /** Shows a profile window that is a page of the main window. */
+    void showInstancePanel(InstanceWindow* window);
+
    signals:
     void isClosing();
 
@@ -159,6 +170,8 @@ class MainWindow : public QMainWindow {
     void on_actionDeleteInstance_triggered();
 
     void deleteGroup(QString group);
+    /** Galaxy: asks for a new category and the profiles to put in it. */
+    void createCategory();
     void renameGroup(QString group);
     void undoTrashInstance();
 
@@ -237,7 +250,7 @@ class MainWindow : public QMainWindow {
     void updateStatusCenter();
     void setInstanceActionsEnabled(bool enabled);
 
-    void runModalTask(Task* task);
+    void runModalTask(Task* task, const QString& title = {});
     void instanceFromInstanceTask(InstanceTask* task);
 
     // Galaxy Launcher
@@ -257,6 +270,12 @@ class MainWindow : public QMainWindow {
     void applyWindowFrame();
     /** Edge resizing for the frameless window; returns true if the event was used. */
     bool handleFramelessResize(QObject* obj, QEvent* ev);
+    /** Applies and closes the settings page; false if a page refused (unsaved input it could not apply). */
+    bool closeSettingsPanel();
+    /** Leaves the settings page or the shown profile window, back to the galaxy or the list. */
+    bool leavePanels();
+    /** True while the settings page or a profile window covers the galaxy or the list. */
+    bool panelShown() const;
 
     friend class GalaxyDevTour;
 
@@ -290,6 +309,10 @@ class MainWindow : public QMainWindow {
     ProfileContentsPanel* m_contents = nullptr;
     QStackedWidget* m_stack = nullptr;
     QSplitter* m_listSplitter = nullptr;
+    QSplitter* m_discoverSplit = nullptr;       ///< The views, and Discover beside them when it is open.
+    QWidget* m_settingsPanel = nullptr;         ///< The settings page while it is open.
+    PageContainer* m_settingsContainer = nullptr;
+    QStackedWidget* m_instancePanels = nullptr;  ///< Profile windows opened inside the main window.
     QAction* m_actionSunColor = nullptr;
     QAction* m_actionProfileMenu = nullptr;
     QAction* m_actionDiscover = nullptr;
@@ -305,4 +328,5 @@ class MainWindow : public QMainWindow {
     QString m_launcherUpdateNotes;
     QUrl m_launcherUpdatePage;
     QUrl m_launcherUpdateInstaller;
+    QHash<QString, int> m_notifiedUpdates;  ///< Galaxy: update counts already announced per profile.
 };

@@ -63,6 +63,8 @@ class NetJob : public ConcurrentTask {
     auto getFailedActions() -> QList<Net::Request*>;
     auto getFailedFiles() -> QList<QString>;
     void setAskRetry(bool askRetry);
+    // Galaxy: when false, requests the server refused (HTTP 4xx) are not retried.
+    void setRetryRefused(bool retryRefused);
 
    public slots:
     // Qt can't handle auto at the start for some reason?
@@ -81,5 +83,6 @@ class NetJob : public ConcurrentTask {
 
     int m_try = 1;
     bool m_ask_retry = true;
+    bool m_retry_refused = true;
     int m_manual_try = 0;
 };

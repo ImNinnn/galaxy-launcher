@@ -17,7 +17,9 @@
 
 #include <QTest>
 
+#include <QLineF>
 #include <QMap>
+#include <QSet>
 #include <QtMath>
 
 #include <ui/galaxy/GalaxyLayout.h>
@@ -232,6 +234,51 @@ class GalaxyLayoutTest : public QObject {
                 QVERIFY2(fromCenter >= BlackHoleRadius + OverviewRadius + 0.5, "a solar system overlaps the black hole");
             }
         }
+    }
+
+    void categoriesFormClustersWithoutOverlap()
+    {
+        // Without categories the galaxy is laid out as before.
+        QCOMPARE(layoutGalaxyClusters(QStringList(7, QString())), layoutGalaxy(7));
+
+        QStringList groups;
+        for (int i = 0; i < 60; i++) {
+            groups << (i % 4 == 0 ? QString() : QStringLiteral("Category %1").arg(i % 3));
+        }
+        QList<Cluster> clusters;
+        const auto positions = layoutGalaxyClusters(groups, 1.0, &clusters);
+        QCOMPARE(positions.size(), groups.size());
+        QCOMPARE(clusters.size(), 3);
+        for (int a = 0; a < positions.size(); a++) {
+            for (int b = a + 1; b < positions.size(); b++) {
+                QVERIFY2(QLineF(positions[a], positions[b]).length() >= 2 * OverviewRadius, "solar systems overlap in the galaxy");
+            }
+            QVERIFY2(std::hypot(positions[a].x(), positions[a].y()) >= BlackHoleRadius + OverviewRadius + 0.5,
+                     "a solar system overlaps the black hole");
+        }
+        // Every system of a category lies inside its cluster, and no other system does.
+        for (const auto& cluster : clusters) {
+            for (int i = 0; i < positions.size(); i++) {
+                const qreal distance = QLineF(positions[i], cluster.center).length();
+                if (groups[i] == cluster.name) {
+                    QVERIFY2(distance + OverviewRadius <= cluster.radius + 1e-6, "a system sticks out of its category");
+                } else {
+                    QVERIFY2(distance - OverviewRadius >= cluster.radius - 1e-6, "a system lies inside another category");
+                }
+            }
+        }
+    }
+
+    void orbitSpeedsVaryWithinLimits()
+    {
+        QSet<int> seen;
+        for (int orbit = 0; orbit < 40; orbit++) {
+            const qreal factor = orbitSpeedFactor(0x1234U, orbit);
+            QVERIFY(factor >= 0.55 && factor <= 1.55);
+            QCOMPARE(orbitSpeedFactor(0x1234U, orbit), factor);  // stable
+            seen.insert(static_cast<int>(factor * 20));
+        }
+        QVERIFY2(seen.size() > 8, "orbit speeds barely vary");
     }
 
     void layoutIsDeterministic()

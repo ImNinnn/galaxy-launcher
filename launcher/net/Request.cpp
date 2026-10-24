@@ -468,6 +468,10 @@ QUrl Request::url() const
 
 QString Request::errorString() const
 {
+    if (m_reply && replyStatusCode() == 429) {
+        // Galaxy: say plainly that waiting is the fix, since trying again right away makes a rate limit last longer.
+        return tr("The server is receiving too many requests from this launcher. Wait a few minutes, then try again.");
+    }
     return m_reply ? m_reply->errorString() : "";
 }
 

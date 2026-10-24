@@ -176,6 +176,56 @@ SurfaceStyle styleForKey(const QString& key, bool moon)
     return style;
 }
 
+SurfaceStyle styleForMod(const QString& key, ModKind kind)
+{
+    SurfaceStyle style = styleForKey(key, false);  // keeps the surface type
+    const auto hash = stableHash(key);
+    // Cached sprites are keyed by the seed: a new kind must not reuse the old colors.
+    style.seed = hash ^ (static_cast<std::uint32_t>(kind) * 0x9e3779b9U);
+    // Independent hash bits for hue, saturation and brightness, so neighbours of one kind still differ.
+    auto unit = [hash](unsigned shift) { return ((hash >> shift) % 1000U) / 1000.0; };
+    const qreal val = 0.58 + unit(17U) * 0.35;  // never too dark or too bright
+    if (kind == ModKind::Unknown) {
+        const qreal sat = unit(9U) * 0.12;
+        style.base = QColor::fromHsvF(static_cast<float>(unit(3U)), static_cast<float>(sat), static_cast<float>(val));
+        style.accent = style.base.darker(135);
+        return style;
+    }
+    // Each kind has a central hue and a reach; most planets stay near the centre, a few reach into the neighbouring
+    // colors (a pinkish library, a teal optimization mod), so together the kinds cover every hue.
+    struct Family {
+        qreal centre;
+        qreal reach;
+    };
+    Family family{};
+    switch (kind) {
+        case ModKind::Library:
+            family = { 12, 48 };  // magenta and pink to red, orange and amber
+            break;
+        case ModKind::Utility:
+            family = { 48, 24 };  // amber to gold and yellow
+            break;
+        case ModKind::Optimization:
+            family = { 120, 58 };  // lime to green and teal
+            break;
+        case ModKind::Content:
+            family = { 248, 80 };  // cyan to blue, purple and violet
+            break;
+        case ModKind::Unknown:
+            break;
+    }
+    const qreal x = 2 * unit(0U) - 1;
+    const qreal offset = family.reach * (x < 0 ? -1 : 1) * std::pow(std::abs(x), 1.5);
+    const qreal hue = std::fmod(family.centre + offset + 360.0, 360.0);
+    const qreal sat = 0.24 + unit(9U) * 0.32;  // muted, like real planets (not neon)
+    style.base = QColor::fromHsvF(static_cast<float>(hue / 360.0), static_cast<float>(sat), static_cast<float>(val));
+    // The accent stays in the same family, a little shifted and darker.
+    const qreal accentHue = std::fmod(hue + (((hash >> 30U) & 1U) != 0U ? -12.0 : 12.0) + 360.0, 360.0);
+    style.accent = QColor::fromHsvF(static_cast<float>(accentHue / 360.0), static_cast<float>(std::min(0.65, sat + 0.1)),
+                                    static_cast<float>(val * 0.78));
+    return style;
+}
+
 SurfaceStyle baseGameStyle()
 {
     SurfaceStyle style;
@@ -314,7 +364,8 @@ void drawRingHalf(QPainter& p,
                   const QColor& color,
                   bool front,
                   int quality,
-                  qreal opacity)
+                  qreal opacity,
+                  bool dashed)
 {
     if (rx <= 0.5 || opacity <= 0.001) {
         return;
@@ -331,9 +382,14 @@ void drawRingHalf(QPainter& p,
     const qreal w = std::max<qreal>(width, 1.0);
 
     QPen pen(withAlpha(color, front ? 200 : 120), w, Qt::SolidLine, Qt::FlatCap);
+    if (dashed) {
+        // Dash lengths are in pen widths; about 7 px dashes with 5 px gaps whatever the band's width.
+        const qreal unit = std::max<qreal>(w, 1.0);
+        pen.setDashPattern({ 7.0 / unit, 5.0 / unit });
+    }
     p.setPen(pen);
     p.drawArc(rect, start, span);
-    if (quality >= 2 && w >= 3) {
+    if (quality >= 2 && w >= 3 && !dashed) {
         // A brighter inner lane and a dark division give the band some structure.
         QPen lane(withAlpha(color.lighter(135), front ? 170 : 95), w * 0.3, Qt::SolidLine, Qt::FlatCap);
         p.setPen(lane);

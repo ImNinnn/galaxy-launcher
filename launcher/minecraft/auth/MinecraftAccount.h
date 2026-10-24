@@ -98,6 +98,10 @@ class MinecraftAccount : public QObject, public Usable {
     shared_qobject_ptr<AuthFlow> login(bool useDeviceCode = false);
 
     shared_qobject_ptr<AuthFlow> refresh();
+    /** Galaxy: fetches only the profile and skin with the saved token (after a skin change), not a full sign-in. */
+    shared_qobject_ptr<AuthFlow> refreshProfile();
+    /** Galaxy: seconds until the saved Minecraft token expires; -1 without a token. */
+    qint64 tokenSecondsLeft() const;
 
     shared_qobject_ptr<AuthFlow> currentTask();
 

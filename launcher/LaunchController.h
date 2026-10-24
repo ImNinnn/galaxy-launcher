@@ -100,4 +100,8 @@ class LaunchController : public Task {
     AuthSessionPtr m_session = nullptr;
     LaunchTask* m_launcher = nullptr;
     MinecraftTarget::Ptr m_targetToJoin = nullptr;
+    // Galaxy: the launch shows as a notification instead of progress windows, and its end as another one.
+    int m_notification = 0;
+    bool m_gameStarted = false;
+    bool m_killed = false;
 };

@@ -44,6 +44,13 @@ inline const QString BlackHoleName = QStringLiteral("GalaxyBlackHoleName");     
 inline const QString LauncherUpdates = QStringLiteral("GalaxyLauncherUpdates");  // bool: check GitHub for new Galaxy Launcher versions
 inline const QString BlackHoleProfile = QStringLiteral("GalaxyBlackHoleProfile");  // QString: profile the black hole launches; empty = last played
 inline const QString DiscoverGeometry = QStringLiteral("GalaxyDiscoverGeometry");  // QString: saved Discover window geometry
+inline const QString CategoryOutlines = QStringLiteral("GalaxyCategoryOutlines");  // bool: dashed outline around each category
+inline const QString ProfileOrder = QStringLiteral("GalaxyProfileOrder");          // QString: JSON array of instance IDs (sidebar order)
+inline const QString EmptyCategories = QStringLiteral("GalaxyEmptyCategories");    // QString: JSON array of categories without profiles
+inline const QString SidebarOrder = QStringLiteral("GalaxySidebarOrder");  // QString: JSON array, top level sidebar items ("p:<id>", "c:<name>")
+inline const QString SystemNotifications = QStringLiteral("GalaxySystemNotifications");  // bool: desktop notifications in the background
+inline const QString ZoomButtons = QStringLiteral("GalaxyZoomButtons");                  // bool: + and − buttons at the bottom left
+inline const QString ResetViewButton = QStringLiteral("GalaxyResetViewButton");          // bool: a reset view button at the bottom left
 
 /** Per-instance setting (stored in instance.cfg) holding the sun color as #RRGGBB, or empty for the default. */
 inline const QString SunColor = QStringLiteral("GalaxySunColor");

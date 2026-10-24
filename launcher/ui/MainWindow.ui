@@ -370,10 +370,10 @@
     <iconset theme="tag"/>
    </property>
    <property name="text">
-    <string>&amp;Change Group...</string>
+    <string>&amp;Change Category...</string>
    </property>
    <property name="toolTip">
-    <string>Change the selected instance's group.</string>
+    <string>Put the selected profile in a category.</string>
    </property>
    <property name="shortcut">
     <string>Ctrl+G</string>

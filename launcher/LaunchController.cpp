@@ -46,7 +46,6 @@
 #include "ui/dialogs/MSALoginDialog.h"
 #include "ui/dialogs/ProfileSelectDialog.h"
 #include "ui/dialogs/ProfileSetupDialog.h"
-#include "ui/dialogs/ProgressDialog.h"
 
 #include <QCheckBox>
 #include <QInputDialog>
@@ -55,10 +54,18 @@
 #include <utility>
 
 #include "BuildConfig.h"
+#include "InstanceList.h"
 #include "JavaCommon.h"
 #include "launch/steps/TextPrint.h"
 #include "tasks/Task.h"
 #include "ui/dialogs/ChooseOfflineNameDialog.h"
+#include "ui/galaxy/Notifications.h"
+
+#include <QDateTime>
+#include <QEventLoop>
+#include <QLocale>
+#include "MMCTime.h"
+#include "settings/SettingsObject.h"
 
 LaunchController::LaunchController() = default;
 
@@ -73,6 +80,18 @@ void LaunchController::executeTask()
         emitFailed(tr("Invalid Java arguments specified. Please fix this first."));
         return;
     }
+
+    // Galaxy: the launch shows as a notification until the game starts (or the launch ends some other way).
+    Notifications::Notification progress;
+    progress.kind = Notifications::Kind::Progress;
+    progress.title = tr("Launching %1").arg(m_instance->name());
+    progress.text = tr("Getting ready…");
+    m_notification = Notifications::instance()->post(progress);
+    connect(this, &Task::finished, this, [this] {
+        if (auto current = Notifications::instance()->find(m_notification); current && current->kind == Notifications::Kind::Progress) {
+            Notifications::instance()->dismiss(m_notification);
+        }
+    });
 
     login();
 }
@@ -157,29 +176,52 @@ LaunchDecision LaunchController::decideLaunchMode()
     }
 
     auto state = accountToCheck->accountState();
+    // Galaxy: after a refresh Minecraft refused, the saved token is used while it is still valid, instead of asking
+    // again at every launch (asking again and again is what gets an account rate limited).
+    constexpr qint64 usableSeconds = 10 * 60;  // enough to start the game and join a server
+    const bool savedTokenUsable = accountToCheck->tokenSecondsLeft() > usableSeconds;
     const bool needsRefresh =
         m_wantedLaunchMode == LaunchMode::Normal && (state == AccountState::Offline || accountToCheck->shouldRefresh());
-    if (state == AccountState::Unchecked || state == AccountState::Errored || needsRefresh) {
+    if (state == AccountState::Unchecked || (state == AccountState::Errored && !savedTokenUsable) || needsRefresh) {
         accountToCheck->refresh();
         state = AccountState::Working;
     }
 
     if (state == AccountState::Working) {
         // refresh is in progress, we need to wait for it to finish to proceed.
-        ProgressDialog progDialog(m_parentWidget);
-        progDialog.showSkipButton();
+        // Galaxy: the sign-in shows in the launch notification (with Cancel) instead of a progress window.
 
         // TODO: this relies on tasks' synchronous signal dispatching nature
         // TODO: meaning currentTask can't complete and become null while this code is running
         // TODO: this code will produce a race condition when tasks become fully async
         auto task = accountToCheck->currentTask();
-        progDialog.execWithTask(task.get());
+        Notifications::instance()->track(task.get(), tr("Launching %1").arg(m_instance->name()), tr("Cancel"), m_notification);
+        if (task->getState() == State::Inactive) {
+            task->start();
+        }
+        if (task->isRunning()) {
+            QEventLoop wait;
+            connect(task.get(), &Task::finished, &wait, &QEventLoop::quit);
+            wait.exec();
+        }
 
         if (task->getState() == State::AbortedByUser) {
             return LaunchDecision::Abort;
         }
 
         state = accountToCheck->accountState();
+    }
+
+    if (state == AccountState::Errored && m_wantedLaunchMode == LaunchMode::Normal && accountToCheck->tokenSecondsLeft() > usableSeconds) {
+        const auto until = QDateTime::currentDateTime().addSecs(accountToCheck->tokenSecondsLeft());
+        const auto reason = accountToCheck->accountData()->errorString;
+        Notifications::instance()->post(
+            Notifications::Kind::Warning, tr("Playing with the saved sign-in"),
+            tr("Minecraft didn't accept a new sign-in for %1%2. The saved one works until %3, so the game starts normally.")
+                .arg(accountToCheck->profileName(), reason.isEmpty() ? QString() : QStringLiteral(" (%1)").arg(reason),
+                     QLocale().toString(until, QLocale::ShortFormat)));
+        m_actualLaunchMode = LaunchMode::Normal;
+        return LaunchDecision::Continue;
     }
 
     QString reauthReason;
@@ -408,6 +450,13 @@ void LaunchController::launchInstance()
 
     m_launcher->prependStep(makeShared<TextPrint>(m_launcher, "Launched instance in " + online_mode + " mode\n", MessageLevel::Launcher));
 
+    if (auto current = Notifications::instance()->find(m_notification)) {
+        current->text = tr("Preparing the game…");
+        current->progress = -1;
+        current->actions.clear();
+        Notifications::instance()->replace(m_notification, *current);
+    }
+
     // Prepend Version
     {
         auto versionString = QString("%1 version: %2 (%3)")
@@ -419,6 +468,15 @@ void LaunchController::launchInstance()
 
 void LaunchController::readyForLaunch()
 {
+    // Galaxy: the game process is up; the launch notification says so and then goes away by itself.
+    m_gameStarted = true;
+    Notifications::Notification started;
+    started.kind = Notifications::Kind::Success;
+    started.title = tr("%1 is starting").arg(m_instance->name());
+    started.text = tr("Minecraft is opening. Have fun!");
+    started.timeout = 4000;
+    Notifications::instance()->replace(m_notification, started);
+
     if (!m_profiler) {
         m_launcher->proceed();
         return;
@@ -467,23 +525,51 @@ void LaunchController::readyForLaunch()
 
 void LaunchController::onSucceeded()
 {
+    // Galaxy: a notification instead of nothing, with the session's play time.
+    const auto played = m_instance->lastTimePlayed();
+    Notifications::instance()->post(
+        Notifications::Kind::Info, tr("%1 stopped").arg(m_instance->name()),
+        played > 0 ? tr("Played for %1.").arg(Time::prettifyDuration(played, APPLICATION->settings()->get("ShowGameTimeWithoutDays").toBool()))
+                   : QString(),
+        {}, true);
     emitSucceeded();
 }
 
 void LaunchController::onFailed(QString reason)
 {
-    if (m_instance->settings()->get("ShowConsoleOnError").toBool()) {
-        APPLICATION->showInstanceWindow(m_instance, "console");
+    // Galaxy: a notification with a button to the log, instead of opening the log window.
+    const QString id = m_instance->id();
+    const Notifications::Action showLog{ tr("Show log"), [id] {
+                                            if (auto* instance = APPLICATION->instances()->getInstanceById(id)) {
+                                                APPLICATION->showInstanceWindow(instance, "console");
+                                            }
+                                        } };
+    Notifications::Notification result;
+    result.system = true;
+    if (m_killed) {
+        result.kind = Notifications::Kind::Info;
+        result.title = tr("%1 was stopped").arg(m_instance->name());
+        result.text = tr("The game was closed from the launcher.");
+    } else if (m_gameStarted) {
+        result.kind = Notifications::Kind::Error;
+        result.title = tr("%1 crashed").arg(m_instance->name());
+        result.text = tr("Minecraft closed unexpectedly. The log shows what happened.");
+        result.actions = { showLog };
+    } else {
+        result.kind = Notifications::Kind::Error;
+        result.title = tr("Couldn't launch %1").arg(m_instance->name());
+        result.text = reason;
+        result.actions = { showLog };
     }
+    Notifications::instance()->replace(m_notification, result);
     emitFailed(std::move(reason));
 }
 
 void LaunchController::onProgressRequested(Task* task) const
 {
-    ProgressDialog progDialog(m_parentWidget);
-    progDialog.showSkipButton();
+    // Galaxy: downloads before the game starts show in the launch notification (with Skip) instead of a progress window.
     m_launcher->proceed();
-    progDialog.execWithTask(task);
+    Notifications::instance()->track(task, tr("Launching %1").arg(m_instance->name()), tr("Skip"), m_notification);
 }
 
 bool LaunchController::abort()
@@ -500,6 +586,7 @@ bool LaunchController::abort()
                                                  QMessageBox::Question, QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes)
                         ->exec();
     if (response == QMessageBox::Yes) {
+        m_killed = true;
         return m_launcher->abort();
     }
     return false;

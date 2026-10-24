@@ -60,6 +60,16 @@ GalaxyPage::GalaxyPage(QWidget* parent) : QWidget(parent)
     motionLayout->addWidget(m_backgroundMotion);
     layout->addWidget(motion);
 
+    auto* access = new QGroupBox(tr("Accessibility"), content);
+    auto* accessLayout = new QVBoxLayout(access);
+    m_zoomButtons = new QCheckBox(tr("Show zoom buttons (+ and −) at the bottom left"), access);
+    m_zoomButtons->setToolTip(tr("For zooming without a mouse wheel. The + and − keys zoom too."));
+    m_resetViewButton = new QCheckBox(tr("Show a reset view button at the bottom left"), access);
+    m_resetViewButton->setToolTip(tr("Brings back the whole galaxy, or the whole solar system, after zooming and panning."));
+    accessLayout->addWidget(m_zoomButtons);
+    accessLayout->addWidget(m_resetViewButton);
+    layout->addWidget(access);
+
     auto* look = new QGroupBox(tr("Appearance and performance"), content);
     auto* lookForm = new QFormLayout(look);
     m_renderQuality = new QComboBox(look);
@@ -74,6 +84,9 @@ GalaxyPage::GalaxyPage(QWidget* parent) : QWidget(parent)
     lookForm->addRow(tr("Star field:"), m_starfield);
     m_showOrbits = new QCheckBox(tr("Show orbit paths"), look);
     lookForm->addRow(QString(), m_showOrbits);
+    m_categoryOutlines = new QCheckBox(tr("Outline profile categories in the galaxy"), look);
+    m_categoryOutlines->setToolTip(tr("A dashed circle around the profiles of each category. The category's name is always shown."));
+    lookForm->addRow(QString(), m_categoryOutlines);
     m_objectScale = addSlider(lookForm, tr("Celestial object size:"), 50, 200, &m_objectScaleValue);
     m_objectScale->setToolTip(tr("Scales planets, moons and rings. Relative sizes still follow the installed file sizes."));
     layout->addWidget(look);
@@ -109,6 +122,10 @@ GalaxyPage::GalaxyPage(QWidget* parent) : QWidget(parent)
     otherLayout->addWidget(m_discordPresence);
     m_launcherUpdates = new QCheckBox(tr("Check GitHub for new versions of Galaxy Launcher at startup"), other);
     otherLayout->addWidget(m_launcherUpdates);
+    m_systemNotifications = new QCheckBox(tr("Show desktop notifications while the launcher is in the background"), other);
+    m_systemNotifications->setToolTip(tr("When a game stops or crashes, a launch fails or downloads finish. Inside the launcher, "
+                                         "notifications always show at the top right."));
+    otherLayout->addWidget(m_systemNotifications);
     layout->addWidget(other);
 
     auto* note = new QLabel(tr("Profile sun colors are set per profile: right-click a sun or a profile in the sidebar."), content);
@@ -147,6 +164,10 @@ void GalaxyPage::load()
     m_orbitAnimation->setChecked(s->get(GalaxySettings::OrbitAnimation).toBool());
     m_backgroundMotion->setChecked(s->get(GalaxySettings::BackgroundMotion).toBool());
     m_showOrbits->setChecked(s->get(GalaxySettings::ShowOrbits).toBool());
+    m_zoomButtons->setChecked(s->get(GalaxySettings::ZoomButtons).toBool());
+    m_resetViewButton->setChecked(s->get(GalaxySettings::ResetViewButton).toBool());
+    m_systemNotifications->setChecked(s->get(GalaxySettings::SystemNotifications).toBool());
+    m_categoryOutlines->setChecked(s->get(GalaxySettings::CategoryOutlines).toBool());
     m_updateChecks->setChecked(s->get(GalaxySettings::UpdateChecks).toBool());
     m_systemTitleBar->setChecked(s->get(GalaxySettings::SystemTitleBar).toBool());
     m_discordPresence->setChecked(s->get(GalaxySettings::DiscordPresence).toBool());
@@ -171,6 +192,10 @@ bool GalaxyPage::apply()
     s->set(GalaxySettings::OrbitAnimation, m_orbitAnimation->isChecked());
     s->set(GalaxySettings::BackgroundMotion, m_backgroundMotion->isChecked());
     s->set(GalaxySettings::ShowOrbits, m_showOrbits->isChecked());
+    s->set(GalaxySettings::ZoomButtons, m_zoomButtons->isChecked());
+    s->set(GalaxySettings::ResetViewButton, m_resetViewButton->isChecked());
+    s->set(GalaxySettings::SystemNotifications, m_systemNotifications->isChecked());
+    s->set(GalaxySettings::CategoryOutlines, m_categoryOutlines->isChecked());
     s->set(GalaxySettings::UpdateChecks, m_updateChecks->isChecked());
     s->set(GalaxySettings::SystemTitleBar, m_systemTitleBar->isChecked());
     s->set(GalaxySettings::DiscordPresence, m_discordPresence->isChecked());

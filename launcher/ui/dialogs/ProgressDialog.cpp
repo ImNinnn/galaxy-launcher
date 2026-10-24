@@ -34,6 +34,7 @@
  */
 
 #include "ProgressDialog.h"
+#include "ui/galaxy/Notifications.h"
 #include <QPoint>
 #include "ui_ProgressDialog.h"
 
@@ -151,6 +152,13 @@ int ProgressDialog::execWithTask(Task* task)
     QDialog::DialogCode result{};
     if (handleImmediateResult(result)) {
         return result;
+    }
+
+    // Galaxy: once the main window shows notifications, progress is a notification instead of this window (the call
+    // still waits for the task). The window title names it when the caller set one.
+    if (Notifications::instance()->isShown()) {
+        const QString title = windowTitle() == tr("Please wait...") ? QString() : windowTitle();
+        return Notifications::instance()->waitFor(task, title, ui->skipButton->isHidden() ? QString() : ui->skipButton->text());
     }
 
     // Connect signals.

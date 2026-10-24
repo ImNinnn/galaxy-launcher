@@ -17,10 +17,13 @@
 
 #include "GalaxyLayout.h"
 
+#include <QHash>
+#include <QLineF>
 #include <QtMath>
 
 #include <algorithm>
 #include <cmath>
+#include <numeric>
 
 namespace GalaxyLayout {
 
@@ -85,7 +88,8 @@ qreal layoutSatellites(SystemLayout& layout, int hostNode, const QList<int>& rin
     while (placed < moons.size()) {
         const int capacity = std::max(3, static_cast<int>(std::floor(2 * M_PI * orbitRadius / (2 * maxMoon + MoonGap))));
         const int count = std::min(capacity, static_cast<int>(moons.size()) - placed);
-        const qreal speed = 0.35 * std::pow(hostRadius * 1.6 / orbitRadius, 1.5) * (moonOrbit % 2 ? -1 : 1);
+        const qreal speed = 0.35 * std::pow(hostRadius * 1.6 / orbitRadius, 1.5) * (moonOrbit % 2 ? -1 : 1) *
+                            orbitSpeedFactor(params.seed ^ 0x5bd1e995U, moonOrbit);
         for (int i = 0; i < count; i++) {
             Node moon;
             moon.body = moons[placed + i];
@@ -107,6 +111,17 @@ qreal layoutSatellites(SystemLayout& layout, int hostNode, const QList<int>& rin
 }
 
 }  // namespace
+
+qreal orbitSpeedFactor(std::uint32_t seed, int orbit)
+{
+    std::uint32_t x = seed ^ (static_cast<std::uint32_t>(orbit + 1) * 0x9e3779b9U);
+    x ^= x >> 16U;
+    x *= 0x7feb352dU;
+    x ^= x >> 15U;
+    x *= 0x846ca68bU;
+    x ^= x >> 16U;
+    return 0.55 + (x % 10000U) / 10000.0;
+}
 
 qreal sizeFraction(qint64 bytes, qint64 lo, qint64 hi)
 {
@@ -226,7 +241,7 @@ SystemLayout layoutSystem(const QList<CelestialBody>& bodies, const Params& para
         layout.orbitRadii.append(radius);
 
         // Spread bodies along the orbit in proportion to their size, starting at a per-orbit offset.
-        const qreal speed = BaseAngularSpeed * std::pow(layout.orbitRadii.first() / radius, 1.5);
+        const qreal speed = BaseAngularSpeed * std::pow(layout.orbitRadii.first() / radius, 1.5) * orbitSpeedFactor(params.seed, k);
         const qreal circumference = 2 * M_PI * radius;
         const qreal slack = std::max(0.0, circumference - total) / std::max<qsizetype>(1, orbits[k].size());
         qreal along = 0;
@@ -279,6 +294,101 @@ QList<QPointF> layoutGalaxy(int count, qreal spacingFactor)
         const qreal radius = BlackHoleClearance + c * std::sqrt(i + 0.5);
         const qreal angle = i * goldenAngle;
         positions.append(QPointF(radius * std::cos(angle), radius * std::sin(angle)));
+    }
+    return positions;
+}
+
+QList<QPointF> layoutGalaxyClusters(const QStringList& groups, qreal spacingFactor, QList<Cluster>* clusters)
+{
+    const int count = static_cast<int>(groups.size());
+    if (std::all_of(groups.begin(), groups.end(), [](const QString& group) { return group.isEmpty(); })) {
+        return layoutGalaxy(count, spacingFactor);
+    }
+    const qreal spacing = systemSpacing(spacingFactor);
+    const qreal c = spacing / 1.75;
+    constexpr qreal goldenAngle = 2.399963229728653;
+    const qreal categoryGap = spacing * 0.45;  // extra room around a category, so it reads as a group
+
+    struct Unit {
+        QString name;
+        QList<int> members;
+        qreal radius = 0;
+        QPointF center;
+    };
+    QList<Unit> units;
+    QHash<QString, int> unitOf;
+    for (int i = 0; i < count; i++) {
+        if (groups[i].isEmpty()) {
+            units.append(Unit{ {}, { i } });
+            continue;
+        }
+        if (!unitOf.contains(groups[i])) {
+            unitOf.insert(groups[i], static_cast<int>(units.size()));
+            units.append(Unit{ groups[i], {} });
+        }
+        units[unitOf[groups[i]]].members.append(i);
+    }
+    // Inside a category: a sunflower around its centre (one system sits at the centre).
+    auto localPosition = [c](int k, qsizetype members) {
+        if (members == 1) {
+            return QPointF();
+        }
+        const qreal radius = c * std::sqrt(k + 0.5);
+        return QPointF(radius * std::cos(k * goldenAngle), radius * std::sin(k * goldenAngle));
+    };
+    for (auto& unit : units) {
+        qreal reach = 0;
+        for (int k = 0; k < unit.members.size(); k++) {
+            const QPointF at = localPosition(k, unit.members.size());
+            reach = std::max(reach, std::hypot(at.x(), at.y()));
+        }
+        unit.radius = reach + spacing / 2;
+    }
+
+    // Categories first, larger ones first, then the systems without a category in their order.
+    QList<int> order(units.size());
+    std::iota(order.begin(), order.end(), 0);
+    std::stable_sort(order.begin(), order.end(), [&units](int a, int b) {
+        const bool namedA = !units[a].name.isEmpty();
+        const bool namedB = !units[b].name.isEmpty();
+        if (namedA != namedB) {
+            return namedA;
+        }
+        return units[a].members.size() > units[b].members.size();
+    });
+
+    // Each unit takes the first point of the galaxy's spiral where it overlaps neither the black hole nor another unit.
+    QList<int> placed;
+    for (int u : order) {
+        auto& unit = units[u];
+        for (int j = 0;; j++) {
+            const qreal radius = BlackHoleClearance + c * std::sqrt(j + 0.5);
+            const QPointF at(radius * std::cos(j * goldenAngle), radius * std::sin(j * goldenAngle));
+            // A single system keeps the usual clearance; a category's area keeps a little more.
+            const qreal clearance = BlackHoleClearance - spacing / 2 + (unit.name.isEmpty() ? 0.0 : 0.6);
+            if (radius - unit.radius < clearance - 1e-9) {
+                continue;
+            }
+            const bool free = std::none_of(placed.begin(), placed.end(), [&](int other) {
+                const qreal gap = !unit.name.isEmpty() || !units[other].name.isEmpty() ? categoryGap : 0.0;
+                return QLineF(at, units[other].center).length() < unit.radius + units[other].radius + gap - 1e-9;
+            });
+            if (free) {
+                unit.center = at;
+                break;
+            }
+        }
+        placed.append(u);
+    }
+
+    QList<QPointF> positions(count);
+    for (const auto& unit : units) {
+        for (int k = 0; k < unit.members.size(); k++) {
+            positions[unit.members[k]] = unit.center + localPosition(k, unit.members.size());
+        }
+        if (clusters && !unit.name.isEmpty()) {
+            clusters->append(Cluster{ unit.name, unit.center, unit.radius - spacing / 2 + OverviewRadius + 0.3 });
+        }
     }
     return positions;
 }

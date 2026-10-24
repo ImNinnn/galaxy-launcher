@@ -13,7 +13,8 @@ class AuthFlow : public Task {
     Q_OBJECT
 
    public:
-    enum class Action { Refresh, Login, DeviceCode };
+    // Galaxy: Profile only fetches the Minecraft profile and skin with the saved token (no sign-in).
+    enum class Action { Refresh, Login, DeviceCode, Profile };
 
     explicit AuthFlow(AccountData* data, Action action = Action::Refresh);
     virtual ~AuthFlow() = default;
@@ -28,6 +29,8 @@ class AuthFlow : public Task {
    signals:
     void authorizeWithBrowser(const QUrl& url);
     void authorizeWithBrowserWithExtra(QString url, QString code, int expiresIn);
+    // Galaxy: the Microsoft sign-in step finished; the remaining steps talk to Xbox and Minecraft.
+    void microsoftSignedIn();
 
    protected:
     void succeed();
@@ -42,5 +45,6 @@ class AuthFlow : public Task {
     AccountTaskState m_taskState = AccountTaskState::STATE_CREATED;
     QList<AuthStep::Ptr> m_steps;
     AuthStep::Ptr m_currentStep;
+    AuthStep* m_oauthStep = nullptr;
     AccountData* m_data = nullptr;
 };

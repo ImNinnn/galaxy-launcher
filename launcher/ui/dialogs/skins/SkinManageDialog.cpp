@@ -302,7 +302,8 @@ void SkinManageDialog::accept()
         skinUpload->addNetAction(makeCapeChangeRequest(m_acct->accessToken(), selectedCape));
     }
 
-    skinUpload->addTask(m_acct->refresh().staticCast<Task>());
+    // Galaxy: only the profile changed; fetching it (not a whole new sign-in) keeps skin changes cheap.
+    skinUpload->addTask(m_acct->refreshProfile().staticCast<Task>());
     if (prog.execWithTask(skinUpload.get()) != QDialog::Accepted) {
         CustomMessageBox::selectable(this, tr("Skin Upload"), tr("Failed to upload skin!"), QMessageBox::Warning)->exec();
         reject();
@@ -317,7 +318,7 @@ void SkinManageDialog::on_resetBtn_clicked()
     ProgressDialog prog(this);
     NetJob::Ptr skinReset{ new NetJob(tr("Reset skin"), APPLICATION->network(), 1) };
     skinReset->addNetAction(makeSkinDeleteRequest(m_acct->accessToken()));
-    skinReset->addTask(m_acct->refresh().staticCast<Task>());
+    skinReset->addTask(m_acct->refreshProfile().staticCast<Task>());
     if (prog.execWithTask(skinReset.get()) != QDialog::Accepted) {
         CustomMessageBox::selectable(this, tr("Skin Delete"), tr("Failed to delete current skin!"), QMessageBox::Warning)->exec();
         reject();

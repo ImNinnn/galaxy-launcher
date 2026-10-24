@@ -17,6 +17,7 @@
 
 #include "DiscoverWindow.h"
 
+#include <QApplication>
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -26,7 +27,9 @@
 #include <QMessageBox>
 #include <QPainter>
 #include <QPushButton>
+#include <QSplitter>
 #include <QTabBar>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 #include "Application.h"
@@ -48,6 +51,7 @@
 using Category = ProjectActions::Category;
 
 QPointer<DiscoverWindow> DiscoverWindow::s_window;
+QPointer<QSplitter> DiscoverWindow::s_host;
 
 namespace {
 
@@ -80,28 +84,57 @@ QString categoryNoun(Category category)
 
 }  // namespace
 
+void DiscoverWindow::setHost(QSplitter* host)
+{
+    s_host = host;
+}
+
+bool DiscoverWindow::isOpenBeside()
+{
+    return s_window && s_window->m_embedded && s_window->isVisible();
+}
+
+bool DiscoverWindow::closeBeside()
+{
+    return !isOpenBeside() || s_window->close();  // close() asks first when a selection is not installed yet
+}
+
 void DiscoverWindow::showFor(QWidget* parent, MinecraftInstance* instance, Category category, const QString& search)
 {
+    // Beside the galaxy in the main window, unless a dialog is open over it (then as a window, as before).
+    const bool embed = s_host && !QApplication::activeModalWidget();
     if (!s_window) {
-        s_window = new DiscoverWindow(parent ? parent->window() : nullptr);
+        s_window = embed ? new DiscoverWindow(s_host, true) : new DiscoverWindow(parent ? parent->window() : nullptr, false);
+        if (s_window->m_embedded) {
+            s_host->addWidget(s_window);
+            const int total = std::max(s_host->width(), 900);
+            s_host->setSizes({ total * 45 / 100, total * 55 / 100 });
+        }
     }
     s_window->setTarget(instance, category, search);
     s_window->show();
-    s_window->raise();
-    s_window->activateWindow();
+    if (!s_window->m_embedded) {
+        s_window->raise();
+        s_window->activateWindow();
+    }
 }
 
-DiscoverWindow::DiscoverWindow(QWidget* parent) : QDialog(parent, Qt::Window)
+DiscoverWindow::DiscoverWindow(QWidget* parent, bool embedded) : QDialog(parent, embedded ? Qt::Widget : Qt::Window), m_embedded(embedded)
 {
     setObjectName("galaxyDiscoverWindow");
     setAttribute(Qt::WA_DeleteOnClose);
     setWindowTitle(tr("Discover"));
     setWindowIcon(QIcon::fromTheme("new"));
     setModal(false);
-    setMinimumSize(980, 620);
-    resize(1180, 780);
-    if (const auto geometry = APPLICATION->settings()->get(GalaxySettings::DiscoverGeometry).toString(); !geometry.isEmpty()) {
-        restoreGeometry(QByteArray::fromBase64(geometry.toUtf8()));
+    if (m_embedded) {
+        setWindowFlags(Qt::Widget);  // QDialog's constructor makes it a dialog window otherwise
+        setMinimumWidth(560);
+    } else {
+        setMinimumSize(980, 620);
+        resize(1180, 780);
+        if (const auto geometry = APPLICATION->settings()->get(GalaxySettings::DiscoverGeometry).toString(); !geometry.isEmpty()) {
+            restoreGeometry(QByteArray::fromBase64(geometry.toUtf8()));
+        }
     }
 
     auto* layout = new QVBoxLayout(this);
@@ -134,13 +167,40 @@ DiscoverWindow::DiscoverWindow(QWidget* parent) : QDialog(parent, Qt::Window)
     m_profile->setObjectName("galaxySearchCategory");
     m_profile->setMinimumWidth(220);
     m_profile->setAccessibleName(tr("Profile to install into"));
-    headerLayout->addWidget(title);
-    headerLayout->addSpacing(12);
-    headerLayout->addWidget(m_tabs);
-    headerLayout->addStretch(1);
-    headerLayout->addWidget(into);
-    headerLayout->addWidget(m_profile);
-    layout->addWidget(header);
+    if (m_embedded) {
+        // Beside the galaxy there is less room: the content types get a row of their own, and a close button.
+        m_profile->setMinimumWidth(160);
+        auto* close = new QToolButton(header);
+        close->setObjectName("galaxyPanelClose");
+        close->setText(QStringLiteral("✕"));
+        close->setAutoRaise(true);
+        close->setToolTip(tr("Close Discover"));
+        close->setAccessibleName(tr("Close Discover"));
+        connect(close, &QToolButton::clicked, this, &QWidget::close);
+        headerLayout->addWidget(title);
+        headerLayout->addStretch(1);
+        headerLayout->addWidget(into);
+        headerLayout->addWidget(m_profile);
+        headerLayout->addWidget(close);
+        layout->addWidget(header);
+        auto* tabsRow = new QWidget(this);
+        tabsRow->setObjectName("galaxyTopBar");
+        tabsRow->setAttribute(Qt::WA_StyledBackground);
+        tabsRow->setStyleSheet(GalaxyTheme::chromeStyleSheet());
+        auto* tabsLayout = new QHBoxLayout(tabsRow);
+        tabsLayout->setContentsMargins(10, 0, 10, 6);
+        tabsLayout->addWidget(m_tabs);
+        tabsLayout->addStretch(1);
+        layout->addWidget(tabsRow);
+    } else {
+        headerLayout->addWidget(title);
+        headerLayout->addSpacing(12);
+        headerLayout->addWidget(m_tabs);
+        headerLayout->addStretch(1);
+        headerLayout->addWidget(into);
+        headerLayout->addWidget(m_profile);
+        layout->addWidget(header);
+    }
 
     m_host = new QWidget(this);
     m_hostLayout = new QVBoxLayout(m_host);
@@ -379,7 +439,8 @@ void DiscoverWindow::rebuild(const QString& search)
         if (result != 0) {
             const auto count = dialog->getTasks().size();
             ProjectActions::runDownloads(this, dialog, guardedModel);
-            m_status->setText(tr("Installed %n project(s) into %1. Search for more, or close this window.", "", static_cast<int>(count))
+            m_status->setText(tr("Installing %n project(s) into %1 (see the notification). Search for more, or close this window.", "",
+                                 static_cast<int>(count))
                                   .arg(m_instance ? m_instance->name() : QString()));
             const auto status = m_status->text();
             QMetaObject::invokeMethod(this, [this, status] {
@@ -413,7 +474,9 @@ void DiscoverWindow::closeEvent(QCloseEvent* event)
         event->ignore();
         return;
     }
-    APPLICATION->settings()->set(GalaxySettings::DiscoverGeometry, QString::fromUtf8(saveGeometry().toBase64()));
+    if (!m_embedded) {
+        APPLICATION->settings()->set(GalaxySettings::DiscoverGeometry, QString::fromUtf8(saveGeometry().toBase64()));
+    }
     // Not QDialog::closeEvent(): it calls reject(), which calls close() again; that nested close fails while this one
     // is in progress, so QDialog would ignore the event and the window could never be closed.
     event->accept();

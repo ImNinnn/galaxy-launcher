@@ -33,6 +33,7 @@ class MSALoginDialog : public QDialog {
 
     static MinecraftAccountPtr newAccount(QWidget* parent);
     int exec() override;
+    void done(int result) override;
 
    private:
     explicit MSALoginDialog(QWidget* parent = 0);
@@ -46,6 +47,9 @@ class MSALoginDialog : public QDialog {
     void authorizeWithBrowserWithExtra(QString url, QString code, int expiresIn);
 
    private:
+    // Galaxy: stops a sign-in flow without it closing the dialog, so it makes no more requests.
+    void stopFlow(const shared_qobject_ptr<AuthFlow>& flow);
+
     Ui::MSALoginDialog* ui;
     MinecraftAccountPtr m_account;
     shared_qobject_ptr<AuthFlow> m_devicecode_task;

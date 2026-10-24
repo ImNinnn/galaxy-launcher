@@ -1697,6 +1697,10 @@ void Application::ShowGlobalSettings(class QWidget* parent, QString openPage)
         return;
     }
     emit globalSettingsAboutToOpen();
+    // Galaxy: settings open inside the main window (as a window only while a dialog is open over it).
+    if (m_mainWindow && m_mainWindow->showSettingsPanel(openPage)) {
+        return;
+    }
     {
         SettingsObject::Lock lock(APPLICATION->settings());
         PageDialog dlg(m_globalSettingsProvider.get(), std::move(openPage), parent);
@@ -1705,6 +1709,17 @@ void Application::ShowGlobalSettings(class QWidget* parent, QString openPage)
         connect(&dlg, &PageDialog::applied, this, &Application::globalSettingsApplied);
         dlg.exec();
     }
+}
+
+BasePageProvider* Application::globalSettingsProvider()
+{
+    return m_globalSettingsProvider.get();
+}
+
+void Application::globalSettingsClosed()
+{
+    updateCapabilities();
+    emit globalSettingsApplied();
 }
 
 MainWindow* Application::showMainWindow(bool minimized)
@@ -1756,7 +1771,9 @@ InstanceWindow* Application::showInstanceWindow(MinecraftInstance* instance, con
     auto& extras = m_instanceExtras[id];
     auto& window = extras.window;
 
-    if (window) {
+    if (window && window->property("galaxyEmbedded").toBool()) {
+        // Galaxy: already a page of the main window.
+    } else if (window) {
 // If the window is minimized on macOS or Windows, activate and bring it up
 #ifdef Q_OS_MACOS
         if (window->isMinimized()) {
@@ -1771,13 +1788,22 @@ InstanceWindow* Application::showInstanceWindow(MinecraftInstance* instance, con
         window->raise();
         window->activateWindow();
     } else {
-        window = new InstanceWindow(instance);
-        m_openWindows++;
+        // Galaxy: profile windows open inside the main window (as windows only while a dialog is open over it).
+        QWidget* host = m_mainWindow && !QApplication::activeModalWidget() ? m_mainWindow->instanceHost() : nullptr;
+        window = new InstanceWindow(instance, host);
+        if (host) {
+            window->setProperty("galaxyEmbedded", true);  // part of the main window: not counted as a window of its own
+        } else {
+            m_openWindows++;
+        }
         connect(window, &InstanceWindow::isClosing, this, &Application::on_windowClose);
     }
 
     if (!page.isEmpty()) {
         window->selectPage(page);
+    }
+    if (window->property("galaxyEmbedded").toBool() && m_mainWindow) {
+        m_mainWindow->showInstancePanel(window);
     }
     if (extras.controller) {
         extras.controller->setParentWidget(window);
@@ -1787,7 +1813,9 @@ InstanceWindow* Application::showInstanceWindow(MinecraftInstance* instance, con
 
 void Application::on_windowClose()
 {
-    m_openWindows--;
+    if (!sender() || !sender()->property("galaxyEmbedded").toBool()) {
+        m_openWindows--;
+    }
     auto* instWindow = qobject_cast<InstanceWindow*>(sender());
     if (instWindow) {
         QMutexLocker locker(&m_instanceExtrasMutex);

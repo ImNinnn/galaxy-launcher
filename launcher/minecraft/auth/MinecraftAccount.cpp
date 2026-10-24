@@ -62,6 +62,10 @@ MinecraftAccountPtr MinecraftAccount::loadFromJsonV3(const QJsonObject& json)
 {
     MinecraftAccountPtr account(new MinecraftAccount());
     if (account->data.resumeStateFromV3(json)) {
+        // Galaxy: a fresh saved token is ready to use without signing in again.
+        if (account->accountType() == AccountType::MSA && !account->shouldRefresh()) {
+            account->data.accountState = AccountState::Online;
+        }
         return account;
     }
     return nullptr;
@@ -140,6 +144,33 @@ shared_qobject_ptr<AuthFlow> MinecraftAccount::refresh()
     return m_currentTask;
 }
 
+shared_qobject_ptr<AuthFlow> MinecraftAccount::refreshProfile()
+{
+    if (m_currentTask) {
+        return m_currentTask;
+    }
+
+    m_currentTask.reset(new AuthFlow(&data, AuthFlow::Action::Profile));
+
+    connect(m_currentTask.get(), &Task::succeeded, this, &MinecraftAccount::authSucceeded);
+    connect(m_currentTask.get(), &Task::failed, this, &MinecraftAccount::authFailed);
+    connect(m_currentTask.get(), &Task::aborted, this, [this] { authFailed(tr("Aborted")); });
+    emit activityChanged(true);
+    return m_currentTask;
+}
+
+qint64 MinecraftAccount::tokenSecondsLeft() const
+{
+    if (data.accessToken().isEmpty()) {
+        return -1;
+    }
+    auto expires = data.yggdrasilToken.notAfter;
+    if (!expires.isValid()) {
+        expires = data.yggdrasilToken.issueInstant.addSecs(24 * 3600);
+    }
+    return QDateTime::currentDateTimeUtc().secsTo(expires);
+}
+
 shared_qobject_ptr<AuthFlow> MinecraftAccount::currentTask()
 {
     return m_currentTask;
@@ -208,11 +239,16 @@ bool MinecraftAccount::shouldRefresh() const
 {
     /*
      * Never refresh accounts that are being used by the game, it breaks the game session.
-     * Always refresh accounts that have not been refreshed yet during this session.
+     * Refresh accounts loaded from disk without a token (saved tokens are reused while fresh).
      * Don't refresh broken accounts.
      * Refresh accounts that would expire in the next 12 hours (fresh token validity is 24 hours).
      */
     if (isInUse()) {
+        return false;
+    }
+    // Galaxy: after a refresh failed, the saved token is used while it lasts; retry only when it nearly expires
+    // (an explicit refresh from the accounts page still runs).
+    if (data.accountState == AccountState::Errored && tokenSecondsLeft() > 3600) {
         return false;
     }
     switch (data.validity_) {
@@ -223,7 +259,11 @@ bool MinecraftAccount::shouldRefresh() const
             return false;
         }
         case Validity::Assumed: {
-            return true;
+            // Galaxy: a token loaded from disk is reused while it is still fresh, so restarting the launcher makes no sign-in requests.
+            if (data.accessToken().isEmpty()) {
+                return true;
+            }
+            break;
         }
     }
     auto now = QDateTime::currentDateTimeUtc();

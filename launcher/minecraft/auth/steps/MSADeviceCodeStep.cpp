@@ -69,10 +69,12 @@ void MSADeviceCodeStep::perform()
     auto [request, response] = Net::Request::makeByteArray(url, payload);
     m_request = request;
     m_request->addHeaderProxy(std::make_unique<Net::RawHeaderProxy>(headers));
-    m_request->enableAutoRetry(true);
+    // Galaxy: sign-in requests never retry after a refusal or a rate limit, so they cannot pile up on the account.
+    m_request->enableAutoRetry(false);
 
     m_task.reset(new NetJob("MSADeviceCodeStep", APPLICATION->network()));
     m_task->setAskRetry(false);
+    m_task->setRetryRefused(false);
     m_task->addNetAction(m_request);
 
     connect(m_task.get(), &Task::finished, this, [this, response] { deviceAuthorizationFinished(response); });
@@ -113,6 +115,9 @@ DeviceAuthorizationResponse parseDeviceAuthorizationResponse(const QByteArray& d
 
 void MSADeviceCodeStep::deviceAuthorizationFinished(QByteArray* response)
 {
+    if (m_is_aborted) {
+        return;
+    }
     if (!m_request->wasSuccessful() || m_request->error() != QNetworkReply::NoError) {
         qWarning() << "Device authorization failed:" << m_request->error() << m_request->errorString();
         emit finished(AccountTaskState::STATE_FAILED_HARD, tr("Device authorization failed: %1").arg(m_request->errorString()));
@@ -147,12 +152,13 @@ void MSADeviceCodeStep::deviceAuthorizationFinished(QByteArray* response)
 
 void MSADeviceCodeStep::abort()
 {
+    // Galaxy: marked first, since aborting the request reports back at once and would otherwise ask for a new code.
+    m_is_aborted = true;
     m_expiration_timer.stop();
     m_pool_timer.stop();
     if (m_request) {
         m_request->abort();
     }
-    m_is_aborted = true;
 }
 
 void MSADeviceCodeStep::startPoolTimer()
@@ -223,6 +229,9 @@ AuthenticationResponse parseAuthenticationResponse(const QByteArray& data)
 
 void MSADeviceCodeStep::authenticationFinished(QByteArray* response)
 {
+    if (m_is_aborted) {
+        return;
+    }
     if (m_request->error() == QNetworkReply::TimeoutError) {
         // rfc8628#section-3.5
         // "On encountering a connection timeout, clients MUST unilaterally

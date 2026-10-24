@@ -23,6 +23,8 @@
 
 #include <cstdint>
 
+#include "CelestialBody.h"
+
 class QPainter;
 
 /**
@@ -50,6 +52,12 @@ struct SurfaceStyle {
 /** A deterministic, pleasant style for a body derived from a stable key (e.g. a file name). */
 SurfaceStyle styleForKey(const QString& key, bool moon);
 
+/**
+ * A mod planet colored by what the mod is for: libraries red to orange, optimization green, content blue to purple,
+ * quality of life yellow to gold, unknown grey to silver. The key still varies the shade and the surface.
+ */
+SurfaceStyle styleForMod(const QString& key, ModKind kind);
+
 /** The base game planet: blue-green with blocky continents. */
 SurfaceStyle baseGameStyle();
 
@@ -76,6 +84,7 @@ void drawShadow(QPainter& p, QPointF center, qreal rx, qreal ry, qreal opacity);
 /**
  * Draws half of an elliptical band (a shader ring).
  * @param front true for the half nearer to the viewer (drawn after the planet), false for the far half.
+ * @param dashed a dashed band without inner detail, for a disabled shader.
  */
 void drawRingHalf(QPainter& p,
                   QPointF center,
@@ -86,7 +95,8 @@ void drawRingHalf(QPainter& p,
                   const QColor& color,
                   bool front,
                   int quality,
-                  qreal opacity = 1.0);
+                  qreal opacity = 1.0,
+                  bool dashed = false);
 
 /**
  * The black hole at the centre of the galaxy: halo, tilted accretion disk (far half behind, near half in front),

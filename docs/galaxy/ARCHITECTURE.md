@@ -30,13 +30,16 @@ All new code lives in `launcher/ui/galaxy/` unless noted.
 | `CelestialPainter` | Procedural drawing: shaded spheres lit from the sun, sun corona, rings, orbits, star field. |
 | `ProjectActions` | Context menus and operations on installed content, delegating to Prism's models and dialogs. |
 | `DiscoverWindow` | Non-modal "Discover" window: one tab per content type, each hosting Prism's `ResourceDownloadDialog` embedded as a widget (providers, search, filters, versions, dependencies, review), plus a profile picker. |
+| `ModCategories` | What each mod is for (library, optimization, content, quality of life), from its Modrinth categories, for the planet colors (`CelestialPainter::styleForMod`). Files are found by Prism's project ID or by SHA-1 (`ModrinthAPI::currentVersions`, then `getProjects`), in batches of up to 100, and saved to `cache/galaxy-mod-kinds.json` keyed by file name and size; unknown files are asked about again after two weeks, failures back off from 10 minutes to 6 hours. |
+| `ProfileOrganizer` | The user's profile order (dragged in the sidebar), the order of the sidebar's top level (`GalaxySidebarOrder`: profiles outside categories and categories, freely mixed) and categories created before any profile is in them, stored as Galaxy settings (`GalaxyProfileOrder`, `GalaxyEmptyCategories`, JSON arrays); the *New category* dialog. The sidebar and the galaxy sort profiles with `sort()`. |
+| `Notifications`, `NotificationArea` | Notifications: a list with progress, actions and timeouts (`track()` follows a task, `waitFor()` replaces a progress window), shown as cards at the top right of the main column that slide in and out (`QPropertyAnimation`; the area is masked to its cards). Ones marked `system` also go to the desktop while the launcher is not active: the notification portal in the Flatpak, `org.freedesktop.Notifications` on other Linux systems, a temporary tray icon elsewhere; never from the developer tour. |
 | `UpdateChecker` | Background Modrinth update checks (Prism's `ModrinthCheckUpdate`) when a profile is opened, once its folders have loaded; includes files with locked updates (modpack content). Marks content in the galaxy and, through a hook in `ResourceFolderModel::ProxyModel`, in Prism's list pages. Keeps each update's ready download task (`updatesFor()`), valid while the file is unchanged. |
 | `LauncherUpdate` | Startup check of the GitHub releases (`BuildConfig.GALAXY_RELEASES_REPO`, previews included) against `BuildConfig.GALAXY_VERSION`; the main window shows a red arrow and `show()` explains the update. Galaxy Launcher's version is separate from the Prism Launcher version it is built on. |
 | `UpdatesDialog` | Every update of a profile with changelogs; `ProjectActions::updateAll()` runs the chosen download tasks together and re-disables files that were disabled. |
 | `DiscordPresence` | Discord Rich Presence over Discord's local IPC socket (handshake, `SET_ACTIVITY`, reconnects). |
 | `MicrosoftLoginSetup` | Explains how to get a Microsoft application (client) ID and stores it in Prism's `MSAClientIDOverride` setting. |
 | `SunColor` | Per-profile sun colors (stored in `instance.cfg` as `GalaxySunColor`) and the color picker. |
-| `GalaxySidebar`, `GalaxyTopBar`, `GalaxySearchBar` | Window chrome. Top bar buttons are bound to MainWindow's existing `QAction`s. |
+| `GalaxySidebar`, `GalaxyTopBar`, `GalaxySearchBar` | Window chrome. Top bar buttons are bound to MainWindow's existing `QAction`s. The sidebar's `SidebarCategoryModel` lists profiles under a header per category (Prism's instance groups and their collapsed state); it keeps its own selection model in step with Prism's, and its drag and drop (`dropMimeData`) reorders profiles and moves them between categories. |
 | `ProfileContentsPanel` | List view: Prism's own Mods / Resource Packs / Shader Packs / Data Packs pages for the selected profile. |
 | `GalaxySettings` | Setting keys; registered in `Application.cpp`. |
 | `ui/themes/GalaxyTheme` | The default "space purple" theme (other Prism themes remain selectable). |
@@ -61,12 +64,41 @@ All new code lives in `launcher/ui/galaxy/` unless noted.
 * `MSAStep` always signs in through the browser with a local redirect page: `QOAuthHttpServerReplyHandler` listens on
   127.0.0.1 only, advertises `http://localhost:<port>/` (the redirect URI registered for Galaxy Launcher's Entra
   application) and serves `resources/galaxy/login-callback.html`, which shows success or Microsoft's error.
+* Fewer sign-in requests, so an account is not rate limited:
+  * `MinecraftAccount::shouldRefresh()` reuses a token loaded from disk until it is within 12 hours of expiring.
+    Such an account loads as *Online*, so restarting the launcher or starting a game makes no sign-in request.
+  * The auth steps turn off `Request`'s rate-limit retry and set `NetJob::setRetryRefused(false)`: a 4xx response
+    fails at once instead of being sent three times. `Request::errorString()` tells the user to wait after a 429.
+  * Skin and cape changes update the account with `MinecraftAccount::refreshProfile()` (`AuthFlow::Action::Profile`:
+    the profile and the skin image only) instead of a full sign-in.
+  * After a refresh fails (the account is *Errored*), a launch uses the saved Minecraft token while it has more than
+    10 minutes left, with a notification, instead of asking to sign in again; `shouldRefresh()` does not retry in the
+    background until the token has less than an hour left (the accounts page's Refresh still does).
+  * `AuthFlow::microsoftSignedIn()` lets `MSALoginDialog` stop the other flow once the browser or the code has
+    signed in, so the device code is no longer polled. Closing the dialog stops both flows.
+    `MSADeviceCodeStep::abort()` marks the step aborted before aborting its request; before, the aborted poll
+    asked Microsoft for a new code. `GALAXY_DEV_LOGIN_TEST=2` checks that closing the dialog stops the polling.
 * `ResourceFolderModel::s_updateLookup` + `ProxyModel::data()` color the names of resources with updates;
   `ResourceFolderModel::isUpdating()` lets the update check wait until a folder has loaded.
 * `MainWindow` uses a frameless window: `GalaxyTopBar` has window buttons and starts a system move on drag; an
   application event filter starts system resizes near the edges (Settings › Galaxy can restore the system title bar).
 * `AccountListPage` keeps *Add Microsoft* visible and runs `MicrosoftLoginSetup` when no client ID is set;
   `Application` recomputes its capabilities when settings are applied, so API keys work without a restart.
+* `MainWindow`: "Change Group" is *Change Category…*, with category wording in its dialogs and in rename/delete
+  (opened from a sidebar header's context menu; empty categories are renamed and deleted in `ProfileOrganizer`).
+* `LaunchController`: the launch is a notification instead of progress windows (the account refresh waits in a local
+  event loop; the launch task's downloads are tracked with *Skip*); the end of a game is a notification (stopped with
+  the session's play time, crashed or failed with *Show log*) instead of opening the log window.
+* `ProgressDialog::execWithTask()`: once the main window shows notifications, it calls `Notifications::waitFor()`
+  instead of opening (same blocking call and result), so every progress window becomes a notification.
+* Settings and profile windows are pages of the main window: `Application::ShowGlobalSettings()` calls
+  `MainWindow::showSettingsPanel()` (a `PageContainer` with the settings pages, applied on *Done*, Back or leaving),
+  and `Application::showInstanceWindow()` creates the `InstanceWindow` as a child of `MainWindow::instanceHost()`
+  (`Qt::Widget`, property `galaxyEmbedded`, not counted as an open window). While a dialog is open over the main
+  window they still open as windows. Closing the main window closes (and saves) them first.
+* `DiscoverWindow::setHost()`: Discover opens in a splitter beside the views (`m_discoverSplit`) instead of a window.
+* `MainWindow`: no status bar (`setStatusBarVisibility()` always hides it); play time is in the galaxy's tooltips.
+  Installing, updating and *Update All* run in the background with notifications (`ProjectActions::runWithNotification`).
 * `MainWindow` hosts the chrome, routes launches through `launchInstance()` (adds the cosmetic animation) and
   refactors the list view's rename handling into `applyInstanceRename()` so the galaxy can reuse it.
 * Branding: app ID `io.github.galaxylauncher.GalaxyLauncher`, binary `galaxylauncher`, data folder `GalaxyLauncher`,
@@ -129,10 +161,17 @@ ResourceFolderModels ──signals──▶ SystemContent::rebuild() (debounced 
   room. The galaxy turns as a whole (`galacticSpeed`, one turn about every five minutes); a rigid rotation keeps the
   no-overlap guarantee that differential rotation would break.
 * Hovering pauses motion per object: planets and moons keep a per-node paused time (a moon or ring pauses its
-  planet too), capped so a stopped body never reaches a neighbour on its orbit, and decaying once the cursor leaves
-  so the body speeds up back into its place (`BodyCatchUpRate`). Disabled content on its shared orbit pauses the same
+  planet too), capped so a stopped body never reaches a neighbour on its orbit; once the cursor leaves, an
+  underdamped spring (`springBack()`) slingshots it back, a little past its place, and settles it. Each orbit's speed
+  is scaled by `GalaxyLayout::orbitSpeedFactor()` (stable per profile and orbit; also the galaxy's mini systems). After
+  a relayout, bodies glide to their new orbits on a critically damped spring (`glide()`) that keeps its speed when
+  relayouts follow each other, and hover lag carries over. Disabled content on its shared orbit pauses the same
   way, and that orbit is drawn (with orbit paths on) while the system is a nebula; a hovered profile pauses its own mini planets and falls behind the galaxy's rotation
-  (`SystemNode::lag`), catching up afterwards. Because the rotation is rigid, only the lagging profile moves
+  (`SystemNode::lag`), slingshotting back afterwards.
+* Switching between entered systems is a direct flight (`GalaxyView::Switch`, `switchCamera()`): the camera moves from
+  one system to the other at the systems' scale (barely zooming out, no galaxy labels or category areas on the way),
+  bending around the black hole when the straight line would cross it; farther systems take a little longer. The old
+  system fades out in the first half and the new one (loaded when the flight starts) in during the second. Because the rotation is rigid, only the lagging profile moves
   relative to the others, and `systemLagAllowed()` refuses any lag that would bring it too close to another one.
 * `GalaxyView::syncNebulae()` follows each profile's running state. When the launch pull-in completes (or a game is
   started elsewhere), a `NebulaState` records when the nebula formed (exploding out of the sun or from the orbits);
@@ -145,7 +184,13 @@ ResourceFolderModels ──signals──▶ SystemContent::rebuild() (debounced 
 * A black hole click (`launchFromBlackHole()`) draws a beam to `blackHoleTarget()` (the chosen profile, else the last
   played) and emits `launchRequested` when it arrives, so the normal launch and its animation follow.
 * Disabled content is exiled during a launch and the nebula: instead of the pull-in and the sparkles it moves to one
-  shared orbit at 1.3× the system's extent (rings of a disabled planet go with it) and returns on reform.
+  shared orbit at 1.3× the system's extent and returns on reform. `exilePlan()` gives disabled planets and moons a
+  place on that orbit; a ring goes with its planet when that is disabled, a disabled ring otherwise goes around
+  another disabled planet (or moon), keeping its gap to the surface, and orbits alone when there is none.
+* Profile categories: `GalaxyLayout::layoutGalaxyClusters()` lays out each category as a small sunflower of its own
+  and places the categories (larger first) and the systems without one on the galaxy's spiral, first fit without
+  overlap. `paintClusters()` draws each category's area and name, and the dashed outline unless
+  `GalaxyCategoryOutlines` is off. Without categories it is `layoutGalaxy()`.
 * `m_passer`: in system view, every 45–150 s another profile or the black hole crosses the background (purely
   cosmetic, not clickable), drawn with `paintMiniSystem()`, the galaxy view's mini system. It is painted with the system layer's opacity, so it fades out when leaving the system.
 

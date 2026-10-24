@@ -32,6 +32,7 @@
 #include <QPainterPath>
 #include <QPushButton>
 #include <QRadialGradient>
+#include <QToolButton>
 #include <QVBoxLayout>
 #include <QWheelEvent>
 #include <QtConcurrent>
@@ -47,6 +48,9 @@
 #include "settings/SettingsObject.h"
 #include "GalaxySettings.h"
 #include "InstanceList.h"
+#include "MMCTime.h"
+#include "ModCategories.h"
+#include "ProfileOrganizer.h"
 #include "StringUtils.h"
 #include "SunColor.h"
 #include "SystemContent.h"
@@ -63,11 +67,9 @@ constexpr qreal RingRotation = -12.0;  ///< Degrees on screen.
 constexpr qreal ShadowDrop = 0.9;      ///< Height of the "table" below the orbit plane, local units.
 constexpr qreal LaunchDuration = 1.6;
 constexpr qreal ReducedLaunchDuration = 0.6;
-constexpr qreal TweenDuration = 0.7;
 constexpr qreal AppearDuration = 0.5;
+constexpr qreal RevealDuration = 0.6;  ///< A search in a nebula turning sparkles into bodies, and back.
 constexpr qreal SystemMoveDuration = 0.6;
-constexpr qreal SystemCatchUpRate = 0.75;
-constexpr qreal BodyCatchUpRate = 1.0;  ///< After a hover, a body moves this much faster until it is back in place.
 constexpr qreal ExileSpeed = 0.04;      ///< Radians per second on the shared orbit of disabled content.
 constexpr qreal BeamArrive = 0.55;    ///< Seconds for the black hole's beam to reach the system (then it launches).
 constexpr qreal BeamDuration = 1.15;  ///< Beam fully faded.  ///< After a hover, a profile turns this much faster until it is back in place.
@@ -226,6 +228,92 @@ qreal twinkle(const QString& key, qreal time)
     return 0.5 + 0.5 * std::sin(time * (1.4 + (hash % 100U) / 60.0) + (hash % 628U) / 100.0);
 }
 
+/** Icons for the on-screen view buttons, drawn in the sidebar icons' style: 0 = plus, 1 = minus, 2 = fit the view. */
+QIcon viewButtonIcon(int which)
+{
+    QIcon icon;
+    for (const int size : { 18, 36, 54 }) {
+        QPixmap pixmap(size, size);
+        pixmap.fill(Qt::transparent);
+        QPainter p(&pixmap);
+        p.setRenderHint(QPainter::Antialiasing);
+        const qreal u = size / 18.0;
+        p.setPen(QPen(QColor(236, 233, 255), 1.9 * u, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        if (which <= 1) {
+            p.drawLine(QPointF(4 * u, 9 * u), QPointF(14 * u, 9 * u));
+            if (which == 0) {
+                p.drawLine(QPointF(9 * u, 4 * u), QPointF(9 * u, 14 * u));
+            }
+        } else {
+            // Four corners around a dot: back to the whole view.
+            const qreal a = 3 * u;
+            const qreal b = 15 * u;
+            const qreal l = 4 * u;
+            for (const auto& corner : { QPointF(a, a), QPointF(b, a), QPointF(a, b), QPointF(b, b) }) {
+                const qreal dx = corner.x() < 9 * u ? l : -l;
+                const qreal dy = corner.y() < 9 * u ? l : -l;
+                const QPointF points[] = { corner + QPointF(dx, 0), corner, corner + QPointF(0, dy) };
+                p.drawPolyline(points, 3);
+            }
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(236, 233, 255));
+            p.drawEllipse(QPointF(9 * u, 9 * u), 1.6 * u, 1.6 * u);
+        }
+        p.end();
+        icon.addPixmap(pixmap);
+    }
+    return icon;
+}
+
+/** Play time lines for a profile's tooltip (the status bar's former content), unless play time is hidden. */
+QStringList playtimeLines(MinecraftInstance* instance)
+{
+    QStringList lines;
+    if (!instance || !instance->settings()->get("ShowGameTime").toBool()) {
+        return lines;
+    }
+    const bool noDays = APPLICATION->settings()->get("ShowGameTimeWithoutDays").toBool();
+    if (instance->totalTimePlayed() > 0) {
+        lines << QObject::tr("Played for %1 in total").arg(Time::prettifyDuration(instance->totalTimePlayed(), noDays));
+    }
+    if (instance->lastLaunch() > 0 && instance->lastTimePlayed() > 0) {
+        lines << QObject::tr("Last played %1, for %2")
+                     .arg(QLocale().toString(QDateTime::fromMSecsSinceEpoch(instance->lastLaunch()), QLocale::ShortFormat),
+                          Time::prettifyDuration(instance->lastTimePlayed(), noDays));
+    } else if (instance->totalTimePlayed() <= 0) {
+        lines << QObject::tr("Not played yet");
+    }
+    return lines;
+}
+
+/**
+ * After a hover, a body (or a profile) is released like from a slingshot: it shoots back towards its place, a little
+ * past it, and settles. An underdamped spring on how far behind it is.
+ */
+void springBack(qreal& behind, qreal& velocity, qreal dt)
+{
+    constexpr qreal omega = 2 * M_PI / 1.25;  // how fast it swings back
+    constexpr qreal damping = 0.5;            // below 1: it overshoots its place a little (about 16%)
+    velocity += (-omega * omega * behind - 2 * damping * omega * velocity) * dt;
+    behind += velocity * dt;
+    if (std::abs(behind) < 1e-4 && std::abs(velocity) < 1e-3) {
+        behind = 0;
+        velocity = 0;
+    }
+}
+
+/** Glides a relayout offset to zero without overshoot (critically damped), keeping its speed across relayouts. */
+void glide(qreal& offset, qreal& velocity, qreal dt)
+{
+    constexpr qreal omega = 2 * M_PI / 1.7;
+    velocity += (-omega * omega * offset - 2 * omega * velocity) * dt;
+    offset += velocity * dt;
+    if (std::abs(offset) < 1e-4 && std::abs(velocity) < 1e-4) {
+        offset = 0;
+        velocity = 0;
+    }
+}
+
 /** Strips ".disabled" so toggling a file does not change its colors. */
 QString styleKey(const QString& fileName)
 {
@@ -293,12 +381,19 @@ GalaxyView::GalaxyView(QWidget* parent) : QWidget(parent)
     m_systemsRebuildTimer.setInterval(50);
     connect(&m_systemsRebuildTimer, &QTimer::timeout, this, &GalaxyView::rebuildSystems);
 
+    connect(ModCategories::instance(), &ModCategories::changed, this, [this] {
+        m_styleCache.clear();
+        m_sphereSprites.clear();
+        update();
+    });
+
     auto* instances = APPLICATION->instances();
     connect(instances, &QAbstractItemModel::rowsInserted, this, &GalaxyView::scheduleSystemsRebuild);
     connect(instances, &QAbstractItemModel::rowsRemoved, this, &GalaxyView::scheduleSystemsRebuild);
     connect(instances, &QAbstractItemModel::modelReset, this, &GalaxyView::scheduleSystemsRebuild);
     connect(instances, &QAbstractItemModel::dataChanged, this, &GalaxyView::scheduleSystemsRebuild);
     connect(instances, &InstanceList::instancesChanged, this, &GalaxyView::scheduleSystemsRebuild);
+    connect(ProfileOrganizer::instance(), &ProfileOrganizer::changed, this, &GalaxyView::scheduleSystemsRebuild);
 
     // Empty galaxy: an invitation instead of invented content.
     m_emptyState = new QWidget(this);
@@ -335,6 +430,37 @@ GalaxyView::GalaxyView(QWidget* parent) : QWidget(parent)
     connect(import, &QPushButton::clicked, this, &GalaxyView::importProfileRequested);
     m_emptyState->hide();
 
+    // Accessibility (Settings › Galaxy): on-screen buttons to zoom and to reset the view, at the bottom left.
+    m_viewButtons = new QWidget(this);
+    m_viewButtons->setObjectName("galaxyViewButtons");
+    m_viewButtons->setStyleSheet(QStringLiteral("QToolButton { background: rgba(26, 20, 56, 225); border: 1px solid #3A2F70; border-radius: 8px; }"
+                                                "QToolButton:hover { background: #2A2152; border-color: #6D5BD0; }"
+                                                "QToolButton:pressed { background: #352A68; }"));
+    auto* viewButtons = new QVBoxLayout(m_viewButtons);
+    viewButtons->setContentsMargins(0, 0, 0, 0);
+    viewButtons->setSpacing(6);
+    auto addViewButton = [this, viewButtons](int icon, const QString& name) {
+        auto* button = new QToolButton(m_viewButtons);
+        button->setIcon(viewButtonIcon(icon));
+        button->setIconSize(QSize(18, 18));
+        button->setFixedSize(36, 36);
+        button->setToolTip(name);
+        button->setAccessibleName(name);
+        button->setFocusPolicy(Qt::NoFocus);  // the keyboard has + and − (and Tab moves between objects)
+        button->setCursor(Qt::PointingHandCursor);
+        viewButtons->addWidget(button);
+        return button;
+    };
+    m_zoomInButton = addViewButton(0, tr("Zoom in"));
+    m_zoomOutButton = addViewButton(1, tr("Zoom out"));
+    m_resetViewButton = addViewButton(2, tr("Reset view"));
+    m_zoomInButton->setAutoRepeat(true);
+    m_zoomOutButton->setAutoRepeat(true);
+    connect(m_zoomInButton, &QToolButton::clicked, this, [this] { zoomStep(1); });
+    connect(m_zoomOutButton, &QToolButton::clicked, this, [this] { zoomStep(-1); });
+    connect(m_resetViewButton, &QToolButton::clicked, this, &GalaxyView::resetView);
+    m_viewButtons->hide();
+
     reloadSettings();
     rebuildSystems();
 }
@@ -351,6 +477,16 @@ void GalaxyView::reloadSettings()
     m_reducedMotion = s->get(GalaxySettings::ReducedMotion).toBool();
     m_orbitAnimation = s->get(GalaxySettings::OrbitAnimation).toBool();
     m_showOrbits = s->get(GalaxySettings::ShowOrbits).toBool();
+    m_categoryOutlines = s->get(GalaxySettings::CategoryOutlines).toBool();
+    if (m_viewButtons) {
+        const bool zoom = s->get(GalaxySettings::ZoomButtons).toBool();
+        const bool reset = s->get(GalaxySettings::ResetViewButton).toBool();
+        m_zoomInButton->setVisible(zoom);
+        m_zoomOutButton->setVisible(zoom);
+        m_resetViewButton->setVisible(reset);
+        m_viewButtons->setVisible(zoom || reset);
+        placeViewButtons();
+    }
     m_backgroundMotion = s->get(GalaxySettings::BackgroundMotion).toBool();
     m_renderQuality = std::clamp(s->get(GalaxySettings::RenderQuality).toInt(), 0, 2);
     m_starfieldQuality = std::clamp(s->get(GalaxySettings::StarfieldQuality).toInt(), 0, 2);
@@ -413,8 +549,22 @@ void GalaxyView::rebuildSystems()
         const int byName = QString::localeAwareCompare(a->name().toLower(), b->name().toLower());
         return byName != 0 ? byName < 0 : a->id() < b->id();
     });
+    // Then the order the profiles were dragged into in the sidebar.
+    QStringList order;
+    for (auto* inst : std::as_const(instances)) {
+        order << inst->id();
+    }
+    ProfileOrganizer::instance()->sort(order);
+    std::stable_sort(instances.begin(), instances.end(),
+                     [&order](MinecraftInstance* a, MinecraftInstance* b) { return order.indexOf(a->id()) < order.indexOf(b->id()); });
 
-    const auto positions = GalaxyLayout::layoutGalaxy(static_cast<int>(instances.size()), m_spacing);
+    // Profiles in one category stay together.
+    QStringList categories;
+    for (auto* inst : std::as_const(instances)) {
+        categories << list->getInstanceGroup(inst->id());
+    }
+    m_clusters.clear();
+    const auto positions = GalaxyLayout::layoutGalaxyClusters(categories, m_spacing, &m_clusters);
     const qreal t = now();
 
     QHash<QString, SystemNode> previous;
@@ -433,6 +583,7 @@ void GalaxyView::rebuildSystems()
         node.id = inst->id();
         node.instance = inst;
         node.name = inst->name();
+        node.category = categories[i];
         const auto loaders = SystemContent::loaderSummary(inst);
         node.subtitle = loaders.isEmpty() ? SystemContent::minecraftVersion(inst)
                                           : QStringLiteral("%1 · %2").arg(SystemContent::minecraftVersion(inst), loaders);
@@ -524,10 +675,16 @@ void GalaxyView::requestSummary(int systemIndex)
     const QString id = m_systems[systemIndex].id;
 
     auto* watcher = new QFutureWatcher<OverviewSummary>(this);
-    connect(watcher, &QFutureWatcher<OverviewSummary>::finished, this, [this, watcher, id] {
+    connect(watcher, &QFutureWatcher<OverviewSummary>::finished, this, [this, watcher, id, modsDir = dirs.mods] {
         const auto summary = watcher->result();
         watcher->deleteLater();
         m_summaryCache.insert(id, summary);
+        // The overview planets are colored by what each mod is for too.
+        QList<ModCategories::File> mods;
+        for (int k = 0; k < summary.planetKeys.size(); k++) {
+            mods.append({ QDir(modsDir).filePath(summary.planetKeys[k]), summary.planetSizes[k], QString() });
+        }
+        ModCategories::instance()->request(mods);
         const int index = systemIndexOf(id);
         if (index >= 0) {
             m_systems[index].summary = summary;
@@ -595,6 +752,12 @@ void GalaxyView::setFilter(const QString& text)
     }
     m_filter = filter;
     m_focus = {};
+    if (m_reducedMotion) {
+        for (int n = 0; n < m_nodeStates.size(); n++) {
+            m_nodeStates[n].reveal = revealTarget(n);  // no fade
+        }
+    }
+    updateTicker();  // a search in a nebula animates its sparkles
     update();
     emit filterMatchesChanged(matchCount());
 }
@@ -672,7 +835,7 @@ bool GalaxyView::systemMatchesFilter(const SystemNode& node) const
     if (m_filter.isEmpty()) {
         return true;
     }
-    const QString haystack = (node.name + ' ' + node.subtitle + ' ' + node.summary.allNames.join(' ')).toLower();
+    const QString haystack = (node.name + ' ' + node.subtitle + ' ' + node.category + ' ' + node.summary.allNames.join(' ')).toLower();
     const auto tokens = m_filter.split(' ', Qt::SkipEmptyParts);
     return std::all_of(tokens.begin(), tokens.end(), [&haystack](const QString& token) { return haystack.contains(token); });
 }
@@ -704,9 +867,14 @@ void GalaxyView::enterSystem(const QString& instanceId, bool animate)
         m_pendingSystem.clear();
         return;
     }
-    // Switching from one system to another: fly out to the galaxy first, then into the new system.
+    // Switching from one system to another: fly straight to it (while still flying in or out of a system: out to the
+    // galaxy first, then in).
     const bool leavingOther = !m_systemId.isEmpty() && m_systemId != instanceId &&
                               (m_targetMode == Mode::System || m_transitionStart >= 0);
+    if (animate && leavingOther && !m_reducedMotion && m_targetMode == Mode::System && m_transitionStart < 0) {
+        startSwitch(index);
+        return;
+    }
     if (animate && leavingOther && !m_reducedMotion) {
         m_pendingSystem = instanceId;
         if (m_targetMode == Mode::System) {
@@ -748,6 +916,10 @@ void GalaxyView::showGalaxy(bool animate, qreal duration)
     }
     if (duration <= 0) {
         m_pendingSystem.clear();  // an explicit "back" cancels a queued switch
+    }
+    if (m_switch.active()) {
+        m_switch.start = -1;  // back to the galaxy from wherever the flight between systems got to
+        m_nextContent.reset();
     }
     m_targetMode = Mode::Galaxy;
     m_transitionFrom = animate ? transitionProgress() : 0.0;
@@ -812,6 +984,12 @@ qreal GalaxyView::bodyLag(const QString& bodyKey) const
 {
     const int node = m_nodeByKey.value(bodyKey, -1);
     return node >= 0 && node < m_nodeStates.size() ? m_nodeStates[node].paused : 0.0;
+}
+
+qreal GalaxyView::bodyReveal(const QString& bodyKey) const
+{
+    const int node = m_nodeByKey.value(bodyKey, -1);
+    return node >= 0 && node < m_nodeStates.size() ? m_nodeStates[node].reveal : 0.0;
 }
 
 QPointF GalaxyView::blackHoleScreenPosition() const
@@ -880,14 +1058,21 @@ void GalaxyView::relayoutSystem(bool animate)
         qreal radius;
     };
     QHash<QString, Was> was;
+    QHash<QString, NodeState> previous;  // hover lag, slingshot and glide speeds carry over
+    QHash<QString, qreal> previousSpeed;
     for (auto it = m_nodeByKey.constBegin(); it != m_nodeByKey.constEnd(); ++it) {
         if (it.value() < m_layout.nodes.size()) {
             was.insert(it.key(), { nodeAngle(it.value()), nodeOrbitRadius(it.value()) });
+            if (it.value() < m_nodeStates.size()) {
+                previous.insert(it.key(), m_nodeStates[it.value()]);
+                previousSpeed.insert(it.key(), m_layout.nodes[it.value()].speed);
+            }
         }
     }
 
     GalaxyLayout::Params params;
     params.objectScale = m_objectScale;
+    params.seed = stableHash(m_systemId);  // each orbit turns at its own pace, the same every time
     m_layout = GalaxyLayout::layoutSystem(m_bodies, params);
     m_nodeStates = QList<NodeState>(m_layout.nodes.size());
     m_nodeByKey.clear();
@@ -905,11 +1090,21 @@ void GalaxyView::relayoutSystem(bool animate)
             }
             continue;
         }
+        auto& state = m_nodeStates[n];
+        if (const auto old = previous.constFind(key); old != previous.constEnd()) {
+            state.paused = old->paused;
+            state.pausedVelocity = old->pausedVelocity;
+            state.reveal = old->reveal;
+            state.appearStart = old->appearStart;
+        }
         if (tween && node.role != GalaxyLayout::Node::Role::Ring) {
-            auto& state = m_nodeStates[n];
-            state.angleOffset = wrapAngle(it->angle - (node.phase + node.speed * m_orbitTime));
+            // From exactly where it is, at the speed it moves, towards its new orbit.
+            state.angleOffset = wrapAngle(it->angle - (node.phase + node.speed * (m_orbitTime - state.paused)));
             state.radiusOffset = it->radius - node.orbitRadius;
-            state.tweenStart = t;
+            if (const auto old = previous.constFind(key); old != previous.constEnd()) {
+                state.angleVelocity = old->angleVelocity + previousSpeed.value(key) - node.speed;
+                state.radiusVelocity = old->radiusVelocity;
+            }
         }
     }
     m_hover = {};
@@ -928,15 +1123,19 @@ qreal GalaxyView::now() const
 bool GalaxyView::wantsContinuousFrames() const
 {
     const qreal t = now();
+    if (m_switch.active()) {
+        return true;
+    }
     if (m_transitionStart >= 0 && t - m_transitionStart < m_transitionDuration) {
         return true;
     }
     if (m_launchStart >= 0 || m_beamStart >= 0 || nebulaAnimating() || !qFuzzyCompare(m_labelFade, labelTarget())) {
         return true;
     }
-    for (const auto& state : m_nodeStates) {
-        if ((state.tweenStart >= 0 && t - state.tweenStart < TweenDuration) ||
-            (state.appearStart >= 0 && t - state.appearStart < AppearDuration)) {
+    for (int n = 0; n < m_nodeStates.size(); n++) {
+        const auto& state = m_nodeStates[n];
+        if (state.settling() ||  // (the slingshot after a hover runs with the orbit animation's frames)
+            (state.appearStart >= 0 && t - state.appearStart < AppearDuration) || !qFuzzyCompare(1 + state.reveal, 1 + revealTarget(n))) {
             return true;
         }
     }
@@ -961,6 +1160,15 @@ bool GalaxyView::wantsContinuousFrames() const
     return std::any_of(m_systems.begin(), m_systems.end(), [](const SystemNode& n) { return n.running; });
 }
 
+qreal GalaxyView::revealTarget(int n) const
+{
+    if (m_filter.isEmpty() || m_systemId.isEmpty() || n < 0 || n >= m_layout.nodes.size() || !nebulaMix(m_systemId).active()) {
+        return 0;
+    }
+    const int body = m_layout.nodes[n].body;
+    return body >= 0 && body < m_bodies.size() && matchesFilter(m_bodies[body]) ? 1 : 0;
+}
+
 bool GalaxyView::inForeground() const
 {
     auto* top = window();
@@ -975,10 +1183,9 @@ void GalaxyView::updateTicker()
     if (isVisible() && wantsContinuousFrames()) {
         // Slow orbital motion looks smooth at ~30 fps; transitions and the launch sequence get ~60 fps.
         const qreal t = now();
-        bool fast = m_launchStart >= 0 || (m_transitionStart >= 0 && t - m_transitionStart < m_transitionDuration);
+        bool fast = m_launchStart >= 0 || m_switch.active() || (m_transitionStart >= 0 && t - m_transitionStart < m_transitionDuration);
         for (const auto& state : m_nodeStates) {
-            fast = fast || (state.tweenStart >= 0 && t - state.tweenStart < TweenDuration) ||
-                   (state.appearStart >= 0 && t - state.appearStart < AppearDuration);
+            fast = fast || state.settling() || (state.appearStart >= 0 && t - state.appearStart < AppearDuration);
         }
         for (const auto& node : m_systems) {
             fast = fast || (node.moveStart >= 0 && t - node.moveStart < SystemMoveDuration);
@@ -999,6 +1206,22 @@ void GalaxyView::tick()
     const qreal dt = std::clamp(t - m_lastTick, 0.0, 0.1);  // frame-rate independent, robust to stalls
     m_lastTick = t;
 
+    // Bodies glide to the places a relayout gave them.
+    for (auto& state : m_nodeStates) {
+        if (state.settling()) {
+            glide(state.angleOffset, state.angleVelocity, dt);
+            glide(state.radiusOffset, state.radiusVelocity, dt);
+        }
+    }
+
+    // A search inside a nebula: matching sparkles fade into their planet, moon or ring, and back once it is cleared.
+    for (int n = 0; n < m_nodeStates.size() && n < m_layout.nodes.size(); n++) {
+        auto& state = m_nodeStates[n];
+        const qreal target = revealTarget(n);
+        const qreal step = m_reducedMotion ? 1.0 : dt / RevealDuration;
+        state.reveal = target > state.reveal ? std::min(target, state.reveal + step) : std::max(target, state.reveal - step);
+    }
+
     const bool foreground = inForeground();
     if (m_orbitAnimation && !m_reducedMotion && foreground) {
         m_orbitTime += dt;
@@ -1007,35 +1230,39 @@ void GalaxyView::tick()
         const Hit hovered = m_hover;
         const int hoveredSystem = hovered.type == HitType::System && hovered.index < m_systems.size() ? hovered.index : -1;
         const int hoveredNode = hovered.type == HitType::Body && hovered.index < m_nodeStates.size() ? hovered.index : -1;
-        const int hoveredParent = hoveredNode >= 0 ? m_layout.nodes[hoveredNode].parent : -1;
+        int hoveredParent = hoveredNode >= 0 ? m_layout.nodes[hoveredNode].parent : -1;
         // A body falls behind (stays still) while it is hovered, but never so far that it would reach a neighbour on
         // its orbit; once the cursor leaves, it moves a little faster until it is back in its place.
         QHash<std::pair<int, int>, int> onOrbit;
         for (const auto& node : m_layout.nodes) {
             onOrbit[{ node.parent, node.orbit }]++;
         }
-        const QList<int> exile = exileSlots();
-        const auto exiled = std::count_if(exile.begin(), exile.end(), [](int slot) { return slot >= 0; });
+        const ExilePlan exile = exilePlan();
+        if (hoveredNode >= 0 && exile.host.value(hoveredNode, -1) >= 0) {
+            hoveredParent = exile.host[hoveredNode];  // a ring around another disabled planet stops with that planet
+        }
         for (int n = 0; n < m_nodeStates.size() && n < m_layout.nodes.size(); n++) {
             const auto& node = m_layout.nodes[n];
             auto& state = m_nodeStates[n];
             if (n == hoveredNode || n == hoveredParent) {
                 const qreal spacing = 2 * M_PI / std::max(1, onOrbit.value({ node.parent, node.orbit }));
                 qreal maxLag = 0.4 * spacing / std::max(1e-3, std::abs(node.speed));
-                if (exile.value(n, -1) >= 0) {
-                    maxLag = std::min(maxLag, 0.4 * (2 * M_PI / std::max<qsizetype>(1, exiled)) / ExileSpeed);
+                if (exile.slot.value(n, -1) >= 0) {
+                    maxLag = std::min(maxLag, 0.4 * (2 * M_PI / std::max(1, exile.count)) / ExileSpeed);
                 }
                 state.paused = std::max(state.paused, std::min(state.paused + dt, maxLag));
-            } else if (state.paused > 0) {
-                state.paused = std::max(0.0, state.paused - dt * BodyCatchUpRate);
+                state.pausedVelocity = 0;
+            } else if (state.paused != 0 || state.pausedVelocity != 0) {
+                springBack(state.paused, state.pausedVelocity, dt);  // released: slingshot back into place
             }
         }
         for (int i = 0; i < m_systems.size(); i++) {
             auto& node = m_systems[i];
             if (i == hoveredSystem) {
                 node.paused += dt;  // the whole mini system stops together, so nothing can collide
-            } else if (node.paused > 0) {
-                node.paused = std::max(0.0, node.paused - dt * BodyCatchUpRate);
+                node.pausedVelocity = 0;
+            } else if (node.paused != 0 || node.pausedVelocity != 0) {
+                springBack(node.paused, node.pausedVelocity, dt);
             }
         }
         m_galaxyTime += dt;
@@ -1044,18 +1271,34 @@ void GalaxyView::tick()
         for (int i = 0; i < m_systems.size(); i++) {
             auto& node = m_systems[i];
             qreal lag = node.lag;
+            qreal velocity = node.lagVelocity;
             if (i == hoveredSystem) {
                 lag += dt;
-            } else if (lag > 0) {
-                lag = std::max(0.0, lag - dt * SystemCatchUpRate);
+                velocity = 0;
+            } else if (lag != 0 || velocity != 0) {
+                springBack(lag, velocity, dt);  // released: slingshot back to its place in the galaxy
             }
             if (lag != node.lag && systemLagAllowed(i, lag)) {
                 node.lag = lag;
+                node.lagVelocity = velocity;
+            } else {
+                node.lagVelocity = 0;  // blocked by a neighbour: carried along until there is room
             }
         }
     }
     if (m_backgroundMotion && !m_reducedMotion && foreground) {
         m_driftTime += dt;
+    }
+
+    if (m_switch.active()) {
+        const qreal sp = switchProgress();
+        if (!m_switch.swapped && sp >= 0.5) {
+            finishSwitchHalf();
+        }
+        if (sp >= 1.0) {
+            m_switch.start = -1;
+            emit navigationChanged();
+        }
     }
 
     if (m_transitionStart >= 0 && t - m_transitionStart >= m_transitionDuration) {
@@ -1225,6 +1468,108 @@ GalaxyView::Camera GalaxyView::galaxyFitCamera() const
     return cam;
 }
 
+qreal GalaxyView::approachZoom(const GalaxyLayout::SystemLayout& layout) const
+{
+    const qreal extent = std::max(layout.extent, GalaxyLayout::SunRadius * 3);
+    const qreal viewExtent = std::max(layout.viewExtent, GalaxyLayout::SunRadius * 3);
+    const qreal zoomX = width() / (2 * viewExtent);
+    const qreal zoomY = height() / (2 * viewExtent * TiltSin + 2.4 * GalaxyLayout::SunRadius);
+    return extent * std::max(4.0, std::min(zoomX, zoomY) * 0.9) / GalaxyLayout::OverviewRadius;
+}
+
+void GalaxyView::startSwitch(int targetIndex)
+{
+    if (m_switch.active() && !m_switch.swapped) {
+        // Changed course before reaching the halfway point: the same flight goes to the new target.
+        m_switch.toId = m_systems[targetIndex].id;
+    } else {
+        m_switch = {};
+        m_switch.fromId = m_systemId;
+        m_switch.toId = m_systems[targetIndex].id;
+        m_switch.fromZoom = currentGalaxyCamera().zoom;
+        m_switch.start = now();
+    }
+    // Farther systems take a little longer to reach.
+    const qreal distance = QLineF(systemPosition(systemIndexOf(m_switch.fromId)), systemPosition(targetIndex)).length();
+    m_switch.duration = std::clamp(1.0 + 0.06 * distance, 1.1, 1.8);
+    m_pendingSystem.clear();
+    // The next system's folders start loading now; its layout gives the zoom to arrive at.
+    m_nextContent = std::make_unique<SystemContent>(m_systems[targetIndex].instance.data());
+    GalaxyLayout::Params params;
+    params.objectScale = m_objectScale;
+    params.seed = stableHash(m_switch.toId);
+    m_switch.toZoom = approachZoom(GalaxyLayout::layoutSystem(m_nextContent->bodies(), params));
+    m_switch.toZoomActual = m_switch.toZoom;
+    m_hover = {};
+    m_focus = {};
+    updateTicker();
+    update();
+}
+
+void GalaxyView::finishSwitchHalf()
+{
+    // Halfway: the new system's content takes over (the old one stops watching its folders).
+    const int index = systemIndexOf(m_switch.toId);
+    m_switch.swapped = true;
+    if (index < 0 || !m_nextContent) {
+        m_switch.start = -1;
+        return;
+    }
+    m_systemId = m_switch.toId;
+    m_labelFade = labelTarget();
+    m_content = std::move(m_nextContent);
+    connect(m_content.get(), &SystemContent::changed, this, &GalaxyView::onContentChanged);
+    m_bodies = m_content->bodies();
+    m_nodeStates.clear();
+    m_nodeByKey.clear();
+    relayoutSystem(false);
+    m_systemZoom = 1.0;
+    m_systemPan = {};
+    m_switch.toZoomActual = approachZoom(m_layout);
+    emit navigationChanged();
+}
+
+qreal GalaxyView::switchProgress() const
+{
+    return m_switch.active() ? clamp01((now() - m_switch.start) / m_switch.duration) : 1.0;
+}
+
+GalaxyView::Camera GalaxyView::switchCamera() const
+{
+    const int from = systemIndexOf(m_switch.fromId);
+    const int to = systemIndexOf(m_switch.toId);
+    if (from < 0 || to < 0) {
+        return m_galaxyCamera;
+    }
+    const qreal linear = switchProgress();
+    const qreal u = easeInOut(linear);
+    const QPointF a = systemPosition(from);
+    const QPointF b = systemPosition(to);
+    Camera cam;
+    cam.center = a + (b - a) * u;
+    // Around the black hole, not through it: a straight line passing near the core bends away from it.
+    const QPointF d = b - a;
+    const qreal length2 = QPointF::dotProduct(d, d);
+    if (length2 > 1e-6) {
+        const qreal along = std::clamp(-QPointF::dotProduct(a, d) / length2, 0.0, 1.0);
+        const QPointF closest = a + d * along;
+        const qreal distance = std::hypot(closest.x(), closest.y());
+        const qreal clearance = GalaxyLayout::BlackHoleClearance;
+        if (distance < clearance) {
+            const QPointF away = distance > 1e-3 ? closest / distance : QPointF(-d.y(), d.x()) / std::sqrt(length2);
+            cam.center += away * (clearance - distance) * std::sin(M_PI * u);
+        }
+    }
+    // At the systems' own scale the whole way: only a hint of zooming out, nothing like the galaxy view.
+    const qreal la = std::log(m_switch.fromZoom);
+    const qreal lb = std::log(m_switch.toZoom);
+    const qreal dip = std::log(0.8);
+    qreal l = la + (lb - la) * u + dip * std::sin(M_PI * u);
+    l += (std::log(m_switch.toZoomActual) - lb) * smoothstep(0.5, 1.0, linear);  // the arrival zoom, once known
+    cam.zoom = std::exp(l);
+    return cam;
+}
+
 qreal GalaxyView::systemFitZoom() const
 {
     // Large systems open framed on their inner orbits; zooming out reaches the rest.
@@ -1245,6 +1590,9 @@ GalaxyView::Camera GalaxyView::systemApproachCamera(int systemIndex) const
 
 GalaxyView::Camera GalaxyView::currentGalaxyCamera() const
 {
+    if (m_switch.active()) {
+        return switchCamera();
+    }
     const qreal e = transitionProgress();
     const int index = systemIndexOf(m_systemId);
     if (e <= 0 || index < 0) {
@@ -1302,9 +1650,7 @@ qreal GalaxyView::nodeAngle(int n) const
     qreal angle = node.phase + node.speed * (m_orbitTime - (n < m_nodeStates.size() ? m_nodeStates[n].paused : 0.0));
     if (n < m_nodeStates.size()) {
         const auto& state = m_nodeStates[n];
-        if (state.tweenStart >= 0) {
-            angle += state.angleOffset * (1 - easeOut((now() - state.tweenStart) / TweenDuration));
-        }
+        angle += state.angleOffset;
     }
     return angle;
 }
@@ -1315,9 +1661,7 @@ qreal GalaxyView::nodeOrbitRadius(int n) const
     qreal radius = node.orbitRadius;
     if (n < m_nodeStates.size()) {
         const auto& state = m_nodeStates[n];
-        if (state.tweenStart >= 0) {
-            radius += state.radiusOffset * (1 - easeOut((now() - state.tweenStart) / TweenDuration));
-        }
+        radius += state.radiusOffset;
     }
     return radius;
 }
@@ -1351,20 +1695,31 @@ void GalaxyView::paintEvent(QPaintEvent*)
 
     paintBackground(p, e);
 
-    if (e < 1) {
-        paintGalaxyLayer(p, 1 - e);
+    // How much of the entered system shows (and of the galaxy behind it). Switching systems: the old one fades out in
+    // the first half of the flight, the new one in during the second; the galaxy shows in between.
+    qreal layerAlpha = smoothstep(0.2, 0.85, e);
+    qreal galaxyFade = 1 - e;
+    qreal zoomPan = e;  // the entered system's own zoom and pan
+    if (m_switch.active()) {
+        const qreal sp = switchProgress();
+        layerAlpha = sp < 0.5 ? 1 - smoothstep(0.0, 0.36, sp) : smoothstep(0.64, 1.0, sp);
+        galaxyFade = 1 - layerAlpha;
+        zoomPan = sp < 0.5 ? 1 - smoothstep(0.0, 0.45, sp) : 0.0;
     }
-    if (e > 0 && m_content) {
+    if (galaxyFade > 0.001) {
+        paintGalaxyLayer(p, galaxyFade);
+    }
+    if (layerAlpha > 0.001 && m_content) {
         // Far behind the system; it fades together with the system view when leaving it.
-        paintPasser(p, smoothstep(0.2, 0.85, e));
+        paintPasser(p, layerAlpha);
         const int index = systemIndexOf(m_systemId);
         if (index >= 0) {
             const Camera cam = currentGalaxyCamera();
             const QPointF sys = systemPosition(index);
-            const QPointF origin = projectGalaxy(cam, sys.x(), 0, sys.y()) + m_systemPan * e;
+            const QPointF origin = projectGalaxy(cam, sys.x(), 0, sys.y()) + m_systemPan * zoomPan;
             const qreal extent = std::max(m_layout.extent, GalaxyLayout::SunRadius * 3);
-            const qreal zoom = GalaxyLayout::OverviewRadius * cam.zoom / extent * lerp(1, m_systemZoom, e);
-            paintSystemLayer(p, smoothstep(0.2, 0.85, e), origin, zoom);
+            const qreal zoom = GalaxyLayout::OverviewRadius * cam.zoom / extent * lerp(1, m_systemZoom, zoomPan);
+            paintSystemLayer(p, layerAlpha, origin, zoom);
         }
     }
 
@@ -1717,6 +2072,10 @@ void GalaxyView::paintGalaxyLayer(QPainter& p, qreal fade)
         p.restore();
     }
 
+    if (!m_switch.active()) {
+        paintClusters(p, cam, fade);
+    }
+
     // Far systems first.
     QList<int> order(m_systems.size());
     std::iota(order.begin(), order.end(), 0);
@@ -1796,7 +2155,11 @@ void GalaxyView::paintGalaxyLayer(QPainter& p, qreal fade)
 
     paintBeam(p, cam, fade);
 
-    // Labels last, front to back, skipping ones that would overlap a nearer label.
+    // Labels last, front to back, skipping ones that would overlap a nearer label. None while flying between two
+    // systems: that is a trip past the galaxy's profiles, not the galaxy view.
+    if (m_switch.active()) {
+        labels.clear();
+    }
     QList<QRectF> placed;
     for (auto it = labels.rbegin(); it != labels.rend(); ++it) {
         const QFontMetricsF fm(font());
@@ -1813,20 +2176,102 @@ void GalaxyView::paintGalaxyLayer(QPainter& p, qreal fade)
     }
 }
 
-QList<int> GalaxyView::exileSlots() const
+GalaxyView::ExilePlan GalaxyView::exilePlan() const
 {
-    // Disabled content, in node order; a ring on a disabled planet goes with its planet.
-    QList<int> places(m_layout.nodes.size(), -1);
-    int next = 0;
-    for (int n = 0; n < m_layout.nodes.size(); n++) {
+    // Disabled planets and moons take places on the shared orbit, in node order. A ring goes around a disabled
+    // planet: its own when that one is disabled, otherwise another disabled planet (or moon); with none, it orbits
+    // alone.
+    const auto count = m_layout.nodes.size();
+    ExilePlan plan;
+    plan.slot = QList<int>(count, -1);
+    plan.host = QList<int>(count, -1);
+    auto disabled = [this](const GalaxyLayout::Node& node) { return node.body < m_bodies.size() && !m_bodies[node.body].enabled; };
+    QList<int> planets;
+    QList<int> moons;
+    for (int n = 0; n < count; n++) {
         const auto& node = m_layout.nodes[n];
-        const bool parentExiled = node.parent >= 0 && node.parent < n && places[node.parent] >= 0;
-        if (node.body < m_bodies.size() &&
-            (!m_bodies[node.body].enabled || (node.role == GalaxyLayout::Node::Role::Ring && parentExiled))) {
-            places[n] = next++;
+        if (node.role != GalaxyLayout::Node::Role::Ring && disabled(node)) {
+            plan.slot[n] = plan.count++;
+            (node.role == GalaxyLayout::Node::Role::Planet ? planets : moons).append(n);
         }
     }
-    return places;
+    int next = 0;
+    for (int n = 0; n < count; n++) {
+        const auto& node = m_layout.nodes[n];
+        if (node.role != GalaxyLayout::Node::Role::Ring) {
+            continue;
+        }
+        if (node.parent >= 0 && plan.slot[node.parent] >= 0) {
+            plan.host[n] = node.parent;
+        } else if (disabled(node)) {
+            const auto& hosts = planets.isEmpty() ? moons : planets;
+            if (hosts.isEmpty()) {
+                plan.slot[n] = plan.count++;
+            } else {
+                plan.host[n] = hosts[next++ % hosts.size()];
+            }
+        }
+    }
+    return plan;
+}
+
+void GalaxyView::paintClusters(QPainter& p, const Camera& cam, qreal fade)
+{
+    // A category: a faint area on the galaxy plane around its systems, with the category's name above it.
+    if (m_clusters.isEmpty() || fade <= 0.01) {
+        return;
+    }
+    const qreal angle = GalaxyLayout::galacticSpeed(0) * m_galaxyTime;
+    const qreal cs = std::cos(angle);
+    const qreal sn = std::sin(angle);
+    QFont font = p.font();
+    font.setBold(true);
+    font.setPointSizeF(font.pointSizeF() * 0.92);
+    font.setLetterSpacing(QFont::PercentageSpacing, 108);
+    const QFontMetricsF fm(font);
+    p.save();
+    p.setOpacity(fade);
+    for (const auto& cluster : std::as_const(m_clusters)) {
+        const QPointF at(cluster.center.x() * cs - cluster.center.y() * sn, cluster.center.x() * sn + cluster.center.y() * cs);
+        const QPointF c = projectGalaxy(cam, at.x(), 0, at.y());
+        const qreal rx = cluster.radius * cam.zoom;
+        const qreal ry = rx * TiltSin;
+        if (c.x() < -rx || c.x() > width() + rx || c.y() < -ry - fm.height() || c.y() > height() + ry) {
+            continue;
+        }
+        p.save();
+        p.translate(c);
+        p.scale(1.0, TiltSin);
+        // A quiet glow that fades out smoothly (no visible edge): many stops along an eased curve.
+        QRadialGradient area(QPointF(0, 0), rx * 1.08);
+        for (int i = 0; i <= 10; i++) {
+            const qreal at = i / 10.0;
+            const qreal strength = 1 - smoothstep(0.0, 1.0, at);
+            area.setColorAt(at, QColor(140, 112, 245, static_cast<int>(std::lround(15 * strength))));
+        }
+        p.setPen(Qt::NoPen);
+        p.setBrush(area);
+        p.drawEllipse(QPointF(0, 0), rx * 1.08, rx * 1.08);
+        p.restore();
+        if (m_categoryOutlines) {
+            QPen edge(QColor(167, 139, 250, 34), 1, Qt::DashLine);
+            edge.setCosmetic(true);
+            p.setPen(edge);
+            p.setBrush(Qt::NoBrush);
+            p.drawEllipse(c, rx * 0.96, ry * 0.96);
+        }
+
+        const QString text = fm.elidedText(cluster.name, Qt::ElideRight, std::max(80.0, rx * 1.6));
+        const QRectF box(c.x() - fm.horizontalAdvance(text) / 2 - 8, c.y() - ry * 0.96 - fm.height() - 8, fm.horizontalAdvance(text) + 16,
+                         fm.height() + 4);
+        p.setFont(font);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(12, 9, 30, 105));
+        p.drawRoundedRect(box, box.height() / 2, box.height() / 2);
+        p.setPen(QColor(196, 181, 253, 180));
+        p.drawText(box, Qt::AlignCenter, text);
+    }
+    p.restore();
 }
 
 void GalaxyView::paintMiniSystem(QPainter& p, int index, QPointF c, qreal zoom, qreal launchT, bool hovered)
@@ -1881,7 +2326,7 @@ void GalaxyView::paintMiniSystem(QPainter& p, int index, QPointF c, qreal zoom, 
         const int orbit = std::min(slot / perOrbit, overviewOrbits - 1);
         const int index = slot - orbit * perOrbit;
         const int onOrbit = std::min(perOrbit, static_cast<int>(items.size()) - orbit * perOrbit);
-        const qreal speed = 0.11 * std::pow(orbitRadii[0] / orbitRadii[orbit], 1.5);
+        const qreal speed = 0.11 * std::pow(orbitRadii[0] / orbitRadii[orbit], 1.5) * GalaxyLayout::orbitSpeedFactor(stableHash(node.id), orbit);
         const qreal angle = orbit * 2.4 + 2 * M_PI * index / std::max(1, onOrbit) + speed * (m_orbitTime - node.paused);
         qreal radius = orbitRadii[orbit];
         const auto pull = launchPull(launchT >= 0 && !m_reducedMotion ? launchT : -1, radius / orbitRadii[overviewOrbits - 1]);
@@ -1906,7 +2351,8 @@ void GalaxyView::paintMiniSystem(QPainter& p, int index, QPointF c, qreal zoom, 
         const qreal size = base ? 0.11 : 0.04 + 0.07 * GalaxyLayout::sizeFraction(bytes, GalaxyLayout::PlanetMinBytes,
                                                                                   GalaxyLayout::PlanetMaxBytes);
         mini.r = std::max(1.4, size * m_objectScale * zoom * pull.scale);
-        mini.style = base ? CelestialPainter::baseGameStyle() : CelestialPainter::styleForKey(styleKey(key), false);
+        mini.style = base ? CelestialPainter::baseGameStyle()
+                          : CelestialPainter::styleForMod(styleKey(key), ModCategories::instance()->kindOf(key, bytes));
         const qreal len = std::max(1e-6, std::hypot(x, z));
         mini.light = QPointF(-x / len, (-z / len) * TiltSin - 0.35 * TiltCos);
         mini.facing = (-z / len) * TiltCos + 0.35 * TiltSin;
@@ -1974,7 +2420,7 @@ void GalaxyView::paintSystemLayer(QPainter& p, qreal alpha, QPointF origin, qrea
     const qreal launchT = m_launchId == m_systemId && m_launchStart >= 0 ? t - m_launchStart : -1;
     const bool launchMotion = launchT >= 0 && !m_reducedMotion;
     const qreal extent = std::max(m_layout.extent, GalaxyLayout::SunRadius * 3);
-    const bool transitioning = m_transitionStart >= 0;
+    const bool transitioning = m_transitionStart >= 0 || m_switch.active();
 
     auto project = [origin, zoom](qreal x, qreal y, qreal z) { return origin + QPointF(x * zoom, (z * TiltSin - y * TiltCos) * zoom); };
     const auto nebula = nebulaMix(system.id);
@@ -2014,8 +2460,7 @@ void GalaxyView::paintSystemLayer(QPainter& p, qreal alpha, QPointF origin, qrea
 
     // Disabled content does not go into the sun or the nebula: it moves out to one shared orbit beyond the others
     // while the game launches and runs, and comes back when it stops. Rings of a disabled planet go with it.
-    const QList<int> exileSlot = exileSlots();
-    const auto exiledCount = std::count_if(exileSlot.begin(), exileSlot.end(), [](int slot) { return slot >= 0; });
+    const ExilePlan exile = exilePlan();
     qreal exileWeight = 0;
     if (launchMotion) {
         exileWeight = easeInOut(clamp01(launchT / 0.7)) * (1 - easeInOut(clamp01((launchT - (LaunchDuration - 0.4)) / 0.4)));
@@ -2025,12 +2470,11 @@ void GalaxyView::paintSystemLayer(QPainter& p, qreal alpha, QPointF origin, qrea
     }
     const qreal exileRadius = extent * 1.3;
     auto exilePosition = [&](int n) {
-        const auto& node = m_layout.nodes[n];
-        if (node.role == GalaxyLayout::Node::Role::Ring && node.parent >= 0 && exileSlot[node.parent] >= 0) {
-            n = node.parent;  // a ring stays around its planet
+        if (exile.host[n] >= 0) {
+            n = exile.host[n];  // a ring goes around its disabled planet
         }
         const qreal paused = n < m_nodeStates.size() ? m_nodeStates[n].paused : 0.0;  // stops when hovered, like the rest
-        const qreal angle = 2 * M_PI * exileSlot[n] / std::max<qsizetype>(1, exiledCount) + ExileSpeed * (m_orbitTime - paused);
+        const qreal angle = 2 * M_PI * exile.slot[n] / std::max(1, exile.count) + ExileSpeed * (m_orbitTime - paused);
         return QPointF(exileRadius * std::cos(angle), exileRadius * std::sin(angle));
     };
 
@@ -2039,7 +2483,7 @@ void GalaxyView::paintSystemLayer(QPainter& p, qreal alpha, QPointF origin, qrea
         const auto& body = m_bodies[node.body];
         auto& pl = placed[n];
         pl.local = nodePosition(n);
-        if (exileSlot[n] >= 0) {
+        if (exile.exiled(n)) {
             pl.local += (exilePosition(n) - pl.local) * exileWeight;
         } else if (launchMotion) {
             const qreal frac = std::hypot(pl.local.x(), pl.local.y()) / extent;
@@ -2048,7 +2492,7 @@ void GalaxyView::paintSystemLayer(QPainter& p, qreal alpha, QPointF origin, qrea
             pl.scale = pl.pull.scale;
             pl.alpha = pl.pull.alpha;
         }
-        if (nebula.active() && exileSlot[n] < 0) {
+        if (nebula.active() && !exile.exiled(n)) {
             // Fly out to a fixed spot in the nebula (from the sun after a launch), or back to the orbit when reforming.
             const QPointF orbit = nodePosition(n);
             const QPointF spot = sparklePosition(body.key, nebulaRadius);
@@ -2058,7 +2502,9 @@ void GalaxyView::paintSystemLayer(QPainter& p, qreal alpha, QPointF origin, qrea
                 const QPointF start = nebula.fromSun ? QPointF() : orbit;
                 pl.local = start + (spot - start) * easeOut(nebula.form);
             }
-            pl.sparkle = nebulaAmount;
+            // A search shows matching sparkles as their body again, where they float.
+            const qreal reveal = n < m_nodeStates.size() ? easeInOut(m_nodeStates[n].reveal) : 0.0;
+            pl.sparkle = nebulaAmount * (1 - reveal);
             pl.scale = 1 - 0.7 * pl.sparkle;
             pl.alpha = 1;
         }
@@ -2077,7 +2523,7 @@ void GalaxyView::paintSystemLayer(QPainter& p, qreal alpha, QPointF origin, qrea
     }
 
     // The shared orbit of disabled content, while the system is a nebula.
-    if (m_showOrbits && q >= 1 && exiledCount > 0 && nebula.active() && exileWeight > 0.01) {
+    if (m_showOrbits && q >= 1 && exile.count > 0 && nebula.active() && exileWeight > 0.01) {
         CelestialPainter::drawOrbit(p, origin, exileRadius * zoom, exileRadius * zoom * TiltSin, OrbitColor, 0.16 * exileWeight);
     }
 
@@ -2172,11 +2618,23 @@ void GalaxyView::paintSystemLayer(QPainter& p, qreal alpha, QPointF origin, qrea
 
         if (item.item == Item::RingBack || item.item == Item::RingFront) {
             const auto& host = placed[node.parent];
-            const qreal rx = node.orbitRadius * zoom * host.scale;
-            const QColor color = body.enabled ? QColor(214, 200, 255) : QColor(150, 145, 165);
+            QPointF center = host.screen;
+            // A ring a search revealed in the nebula keeps its full size, even around its host's sparkle.
+            qreal rx = node.orbitRadius * zoom * (pl.sparkle < host.sparkle ? pl.scale : host.scale);
+            if (exile.exiled(n)) {
+                // Moving to (or around) another disabled planet, or orbiting alone: keep the gap to the planet's surface.
+                center = pl.screen;
+                const int newHost = exile.host[n];
+                const qreal parentRadius = m_layout.nodes[node.parent].radius;
+                const qreal hostRadius = newHost >= 0 ? m_layout.nodes[newHost].radius : parentRadius;
+                const qreal target = node.orbitRadius - parentRadius + hostRadius;
+                rx = (node.orbitRadius + (target - node.orbitRadius) * exileWeight) * zoom;
+            }
+            // Disabled shaders are dashed, so they stay visible without relying on their duller color.
+            const QColor color = body.enabled ? QColor(214, 200, 255) : QColor(176, 170, 196);
             const qreal ringAlpha = pl.alpha * (emphasized ? 1.0 : 0.85) * (1 - pl.sparkle);
-            CelestialPainter::drawRingHalf(p, host.screen, rx, rx * RingRatio, pl.r, RingRotation, emphasized ? color.lighter(115) : color,
-                                           item.item == Item::RingFront, q, ringAlpha);
+            CelestialPainter::drawRingHalf(p, center, rx, rx * RingRatio, pl.r, RingRotation, emphasized ? color.lighter(115) : color,
+                                           item.item == Item::RingFront, q, ringAlpha, !body.enabled);
             if (pl.sparkle > 0.01 && item.item == Item::RingFront) {
                 CelestialPainter::drawSparkle(p, pl.screen, emphasized ? 2.6 : 2.0, color, twinkle(body.key, t), pl.sparkle);
             }
@@ -2193,7 +2651,7 @@ void GalaxyView::paintSystemLayer(QPainter& p, qreal alpha, QPointF origin, qrea
             }
             HitShape shape;
             shape.hit = hit;
-            shape.center = host.screen;
+            shape.center = center;
             shape.rx = rx;
             shape.ry = rx * RingRatio;
             shape.radius = std::max(pl.r / 2, 4.0);
@@ -2226,9 +2684,11 @@ void GalaxyView::paintSystemLayer(QPainter& p, qreal alpha, QPointF origin, qrea
             style = CelestialPainter::baseGameStyle();
         } else {
             const auto key = styleKey(body.fileName);
-            auto it = m_styleCache.constFind(key);
+            const auto cacheKey = key + '|' + QString::number(static_cast<int>(body.modKind));
+            auto it = m_styleCache.constFind(cacheKey);
             if (it == m_styleCache.constEnd()) {
-                it = m_styleCache.insert(key, CelestialPainter::styleForKey(key, body.isMoon()));
+                it = m_styleCache.insert(cacheKey, body.kind == CelestialBody::Kind::Mod ? CelestialPainter::styleForMod(key, body.modKind)
+                                                                                          : CelestialPainter::styleForKey(key, body.isMoon()));
             }
             style = *it;
         }
@@ -2437,6 +2897,12 @@ void GalaxyView::paintTooltip(QPainter& p)
         title = blackHoleName();
         lines << tr("The black hole at the heart of your galaxy");
         lines << tr("%n profile(s) orbit it", "", static_cast<int>(m_systems.size()));
+        if (APPLICATION->settings()->get("ShowGlobalGameTime").toBool()) {
+            if (const auto total = APPLICATION->playtimeSettings()->get("TotalPlayTime").toLongLong(); total > 0) {
+                lines << tr("Played for %1 in total, across all profiles")
+                             .arg(Time::prettifyDuration(total, APPLICATION->settings()->get("ShowGameTimeWithoutDays").toBool()));
+            }
+        }
         const auto target = blackHoleTarget();
         const int index = systemIndexOf(target);
         hint = index >= 0 ? tr("Click to launch %1 · Right-click for options").arg(m_systems[index].name) : tr("Right-click for options");
@@ -2448,6 +2914,7 @@ void GalaxyView::paintTooltip(QPainter& p)
             lines << tr("%n mod(s)", "", node.summary.mods) + " · " + tr("%n pack(s)", "", node.summary.packs) + " · " +
                          tr("%n shader(s)", "", node.summary.shaders);
         }
+        lines << playtimeLines(node.instance);
         if (node.running) {
             lines << tr("Running");
         }
@@ -2460,6 +2927,7 @@ void GalaxyView::paintTooltip(QPainter& p)
         const auto& node = m_systems[index];
         title = node.name;
         lines << node.subtitle;
+        lines << playtimeLines(node.instance);
         lines << (node.running ? tr("Running") : tr("Profile sun"));
         hint = node.running ? tr("Click to show the game console · Right-click for profile actions")
                             : tr("Click to launch · Right-click for profile actions");
@@ -2475,6 +2943,9 @@ void GalaxyView::paintTooltip(QPainter& p)
             hint = tr("Click for details");
         } else {
             QStringList kind{ CelestialBody::kindName(body.kind) };
+            if (body.kind == CelestialBody::Kind::Mod) {
+                kind << ModCategories::kindName(body.modKind);
+            }
             if (!body.version.isEmpty()) {
                 kind << body.version;
             }
@@ -2727,15 +3198,48 @@ void GalaxyView::requestContextMenu(const Hit& hit, const QPoint& globalPos)
     }
     menu.addAction(QIcon::fromTheme("new"), tr("New profile…"), this, &GalaxyView::createProfileRequested);
     menu.addAction(QIcon::fromTheme("viewfolder"), tr("Import profile…"), this, &GalaxyView::importProfileRequested);
+    menu.addAction(QIcon::fromTheme("tag"), tr("New category…"), this, &GalaxyView::createCategoryRequested);
     menu.addSeparator();
-    menu.addAction(tr("Reset view"), this, [this] {
-        m_galaxyCameraFitted = true;
-        m_galaxyCamera = galaxyFitCamera();
-        m_systemZoom = 1.0;
-        m_systemPan = {};
-        update();
-    });
+    if (m_targetMode == Mode::Galaxy && !m_clusters.isEmpty()) {
+        auto* outlines = menu.addAction(tr("Outline categories"));
+        outlines->setCheckable(true);
+        outlines->setChecked(m_categoryOutlines);
+        connect(outlines, &QAction::toggled, this, [this](bool on) {
+            APPLICATION->settings()->set(GalaxySettings::CategoryOutlines, on);
+            m_categoryOutlines = on;
+            update();
+        });
+    }
+    menu.addAction(tr("Reset view"), this, &GalaxyView::resetView);
     menu.exec(globalPos);
+}
+
+void GalaxyView::resetView()
+{
+    m_galaxyCameraFitted = true;
+    m_galaxyCamera = galaxyFitCamera();
+    m_systemZoom = 1.0;
+    m_systemPan = {};
+    update();
+}
+
+void GalaxyView::zoomStep(int direction)
+{
+    // Like one mouse wheel step, around the middle of the view.
+    const QPointF mid(width() / 2.0, height() / 2.0);
+    QWheelEvent wheel(mid, mapToGlobal(mid), QPoint(), QPoint(0, direction < 0 ? -120 : 120), Qt::NoButton, Qt::NoModifier,
+                      Qt::NoScrollPhase, false);
+    wheelEvent(&wheel);
+}
+
+void GalaxyView::placeViewButtons()
+{
+    if (!m_viewButtons || !m_viewButtons->isVisible()) {
+        return;
+    }
+    m_viewButtons->adjustSize();
+    m_viewButtons->move(14, height() - m_viewButtons->height() - 14);
+    m_viewButtons->raise();
 }
 
 QList<GalaxyView::Hit> GalaxyView::focusOrder() const
@@ -2934,13 +3438,9 @@ void GalaxyView::keyPressEvent(QKeyEvent* event)
             break;
         case Qt::Key_Plus:
         case Qt::Key_Equal:
-        case Qt::Key_Minus: {
-            const int delta = event->key() == Qt::Key_Minus ? -120 : 120;
-            QWheelEvent wheel(QPointF(width() / 2.0, height() / 2.0), mapToGlobal(QPointF(width() / 2.0, height() / 2.0)), QPoint(),
-                              QPoint(0, delta), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
-            wheelEvent(&wheel);
+        case Qt::Key_Minus:
+            zoomStep(event->key() == Qt::Key_Minus ? -1 : 1);
             return;
-        }
         case Qt::Key_Left:
         case Qt::Key_Right:
         case Qt::Key_Up:
@@ -2980,6 +3480,7 @@ void GalaxyView::resizeEvent(QResizeEvent* event)
         m_galaxyCamera = galaxyFitCamera();
     }
     updateEmptyState();
+    placeViewButtons();
 }
 
 void GalaxyView::showEvent(QShowEvent* event)

@@ -837,6 +837,14 @@ SET(LAUNCHER_SOURCES
     ui/galaxy/GalaxyTopBar.cpp
     ui/galaxy/GalaxyView.h
     ui/galaxy/MicrosoftLoginSetup.h
+    ui/galaxy/ModCategories.h
+    ui/galaxy/ModCategories.cpp
+    ui/galaxy/ProfileOrganizer.h
+    ui/galaxy/ProfileOrganizer.cpp
+    ui/galaxy/Notifications.h
+    ui/galaxy/Notifications.cpp
+    ui/galaxy/NotificationArea.h
+    ui/galaxy/NotificationArea.cpp
     ui/galaxy/MicrosoftLoginSetup.cpp
     ui/galaxy/GalaxyView.cpp
     ui/galaxy/ProfileContentsPanel.h

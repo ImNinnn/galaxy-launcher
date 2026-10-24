@@ -72,7 +72,11 @@ void NetJob::executeNextSubTask()
         m_try += 1;
         m_failed.removeIf([this](QHash<Task*, Task::Ptr>::iterator task) {
             // there is no point in retying on 404 Not Found
-            if (static_cast<Net::Request*>(task->get())->replyStatusCode() == 404) {
+            const auto status = static_cast<Net::Request*>(task->get())->replyStatusCode();
+            if (status == 404) {
+                return false;
+            }
+            if (!m_retry_refused && status >= 400 && status < 500) {
                 return false;
             }
             m_done.remove(task->get());
@@ -204,4 +208,9 @@ void NetJob::emitFailed(QString reason)
 void NetJob::setAskRetry(bool askRetry)
 {
     m_ask_retry = askRetry;
+}
+
+void NetJob::setRetryRefused(bool retryRefused)
+{
+    m_retry_refused = retryRefused;
 }

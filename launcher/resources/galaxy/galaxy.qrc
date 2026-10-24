@@ -2,6 +2,7 @@
 <RCC version="1.0">
     <qresource prefix="/galaxy">
         <file>check.svg</file>
+        <file>chevron-down.svg</file>
         <file>dot.svg</file>
         <file>login-callback.html</file>
     </qresource>

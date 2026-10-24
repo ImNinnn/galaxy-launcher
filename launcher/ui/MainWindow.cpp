@@ -69,6 +69,7 @@
 #include <QShortcut>
 #include <QSplitter>
 #include <QStackedWidget>
+#include <QDialogButtonBox>
 #include <QStatusBar>
 #include <QToolBar>
 #include <QToolButton>
@@ -100,6 +101,7 @@
 #include "InstanceWindow.h"
 
 #include "ui/GuiUtil.h"
+#include "ui/InstanceWindow.h"
 #include "ui/ViewLogWindow.h"
 #include "ui/dialogs/AboutDialog.h"
 #include "ui/dialogs/CopyInstanceDialog.h"
@@ -121,6 +123,8 @@
 #include "ui/themes/ThemeManager.h"
 
 #include "ui/galaxy/DiscordPresence.h"
+#include "ui/galaxy/DiscoverWindow.h"
+#include "ui/widgets/PageContainer.h"
 #include "ui/galaxy/GalaxyDevTour.h"
 #include "ui/galaxy/GalaxySearchBar.h"
 #include "ui/galaxy/GalaxySettings.h"
@@ -128,8 +132,11 @@
 #include "ui/galaxy/GalaxyTopBar.h"
 #include "ui/galaxy/GalaxyView.h"
 #include "ui/galaxy/ProfileContentsPanel.h"
+#include "ui/galaxy/ProfileOrganizer.h"
 #include "ui/galaxy/ProjectActions.h"
 #include "ui/galaxy/LauncherUpdate.h"
+#include "ui/galaxy/NotificationArea.h"
+#include "ui/galaxy/Notifications.h"
 #include "ui/galaxy/UpdateChecker.h"
 #include "ui/galaxy/UpdatesDialog.h"
 #include "ui/galaxy/SunColor.h"
@@ -498,7 +505,8 @@ QMenu* MainWindow::createPopupMenu()
 }
 void MainWindow::setStatusBarVisibility(bool state)
 {
-    statusBar()->setVisible(state);
+    // Galaxy: no status bar. A profile's play time is in its tooltip in the galaxy, the total in the black hole's.
+    statusBar()->setVisible(false);
     APPLICATION->settings()->set("StatusBarVisible", state);
 }
 void MainWindow::lockToolbars(bool state)
@@ -891,7 +899,7 @@ void MainWindow::updateCatState()
     setCatBackground(catVisible);
 }
 
-void MainWindow::runModalTask(Task* task)
+void MainWindow::runModalTask(Task* task, const QString& title)
 {
     connect(task, &Task::failed, this,
             [this](QString reason) { CustomMessageBox::selectable(this, tr("Error"), reason, QMessageBox::Critical)->show(); });
@@ -903,13 +911,17 @@ void MainWindow::runModalTask(Task* task)
     });
     ProgressDialog loadDialog(this);
     loadDialog.showSkipButton();
+    if (!title.isEmpty()) {
+        loadDialog.setWindowTitle(title);  // Galaxy: names the progress notification
+    }
     loadDialog.execWithTask(task);
 }
 
 void MainWindow::instanceFromInstanceTask(InstanceTask* rawTask)
 {
+    const auto name = rawTask->name();
     unique_qobject_ptr<Task> task(APPLICATION->instances()->wrapInstanceTask(rawTask));
-    runModalTask(task.get());
+    runModalTask(task.get(), tr("Creating %1").arg(name));
 }
 
 void MainWindow::on_actionCopyInstance_triggered()
@@ -926,7 +938,7 @@ void MainWindow::on_actionCopyInstance_triggered()
     copyTask->setGroup(copyInstDlg.instGroup());
     copyTask->setIcon(copyInstDlg.iconKey());
     unique_qobject_ptr<Task> task(APPLICATION->instances()->wrapInstanceTask(copyTask));
-    runModalTask(task.get());
+    runModalTask(task.get(), tr("Copying %1").arg(copyInstDlg.instName()));
 }
 
 void MainWindow::addInstance(const QString& url, const QMap<QString, QString>& extra_info, const QString& initialPage)
@@ -1300,23 +1312,34 @@ void MainWindow::on_actionChangeInstGroup_triggered()
     InstanceId instId = m_selectedInstance->id();
     QString src(APPLICATION->instances()->getInstanceGroup(instId));
 
-    QStringList groups = APPLICATION->instances()->getGroups();
+    QStringList groups = ProfileOrganizer::instance()->categories();  // includes categories without profiles yet
     groups.prepend("");
     int index = groups.indexOf(src);
     bool ok = false;
-    QString dst = QInputDialog::getItem(this, tr("Group name"), tr("Enter a new group name."), groups, index, true, &ok);
+    QString dst = QInputDialog::getItem(this, tr("Profile category"), tr("Choose a category or type a new one (empty for none)."), groups,
+                                        index, true, &ok);
     dst = dst.simplified();
 
     if (ok) {
-        APPLICATION->instances()->setInstanceGroup(instId, dst);
+        ProfileOrganizer::instance()->moveToCategory({ instId }, dst);
     }
+}
+
+void MainWindow::createCategory()
+{
+    ProfileOrganizer::instance()->createCategory(this, m_selectedInstance ? m_selectedInstance->id() : QString());
 }
 
 void MainWindow::deleteGroup(QString group)
 {
     Q_ASSERT(!group.isEmpty());
+    if (ProfileOrganizer::instance()->isEmptyCategory(group)) {
+        ProfileOrganizer::instance()->removeEmptyCategory(group);  // nothing in it to ask about
+        return;
+    }
 
-    const int reply = QMessageBox::question(this, tr("Delete group"), tr("Are you sure you want to delete the group '%1'?").arg(group),
+    const int reply = QMessageBox::question(this, tr("Delete category"),
+                                            tr("Delete the category '%1'? Its profiles are kept, without a category.").arg(group),
                                             QMessageBox::Yes | QMessageBox::No);
     if (reply == QMessageBox::Yes)
         APPLICATION->instances()->deleteGroup(group);
@@ -1326,19 +1349,25 @@ void MainWindow::renameGroup(QString group)
 {
     Q_ASSERT(!group.isEmpty());
 
-    QString name = QInputDialog::getText(this, tr("Rename group"), tr("Enter a new group name."), QLineEdit::Normal, group);
+    QString name = QInputDialog::getText(this, tr("Rename category"), tr("New name for the category:"), QLineEdit::Normal, group);
     name = name.simplified();
     if (name.isNull() || name == group)
         return;
 
     const bool empty = name.isEmpty();
-    const bool duplicate = APPLICATION->instances()->getGroups().contains(name, Qt::CaseInsensitive) && group.toLower() != name.toLower();
+    const bool duplicate = ProfileOrganizer::instance()->categories().contains(name, Qt::CaseInsensitive) && group.toLower() != name.toLower();
 
     if (empty || duplicate) {
-        QMessageBox::warning(this, tr("Cannot rename group"), empty ? tr("Cannot set empty name.") : tr("Group already exists. :/"));
+        QMessageBox::warning(this, tr("Cannot rename category"),
+                             empty ? tr("A category needs a name.") : tr("A category with this name already exists."));
         return;
     }
 
+    ProfileOrganizer::instance()->renameInOrder(group, name);
+    if (ProfileOrganizer::instance()->isEmptyCategory(group)) {
+        ProfileOrganizer::instance()->renameEmptyCategory(group, name);
+        return;
+    }
     APPLICATION->instances()->renameGroup(group, name);
 }
 
@@ -1418,6 +1447,11 @@ void MainWindow::checkForUpdates()
 
 void MainWindow::on_actionSettings_triggered()
 {
+    // Galaxy: the settings button toggles the settings page.
+    if (m_settingsPanel && m_stack->currentWidget() == m_settingsPanel) {
+        closeSettingsPanel();
+        return;
+    }
     APPLICATION->ShowGlobalSettings(this, "global-settings");
 }
 
@@ -1446,6 +1480,14 @@ void MainWindow::on_actionEditInstance_triggered()
     if (!m_selectedInstance)
         return;
 
+    // Galaxy: the edit button toggles the profile's page.
+    if (m_instancePanels && m_stack->currentWidget() == m_instancePanels) {
+        auto* shown = qobject_cast<InstanceWindow*>(m_instancePanels->currentWidget());
+        if (shown && shown->instanceId() == m_selectedInstance->id()) {
+            leavePanels();
+            return;
+        }
+    }
     if (m_selectedInstance->canEdit()) {
         APPLICATION->showInstanceWindow(m_selectedInstance);
     } else {
@@ -1633,6 +1675,21 @@ void MainWindow::on_actionViewSelectedInstFolder_triggered()
 
 void MainWindow::closeEvent(QCloseEvent* event)
 {
+    // Galaxy: the settings page and profile windows inside this window close (and save) first.
+    if (!closeSettingsPanel()) {
+        event->ignore();
+        return;
+    }
+    if (m_instancePanels) {
+        while (auto* window = qobject_cast<InstanceWindow*>(m_instancePanels->widget(0))) {
+            if (!window->requestClose()) {
+                event->ignore();
+                return;
+            }
+            m_instancePanels->removeWidget(window);
+        }
+    }
+
     // Save the window state and geometry.
     APPLICATION->settings()->set("MainWindowState", QString::fromUtf8(saveState().toBase64()));
     APPLICATION->settings()->set("MainWindowGeometry", QString::fromUtf8(saveGeometry().toBase64()));
@@ -1947,7 +2004,8 @@ void MainWindow::setupGalaxyUi()
 
     auto* launchButton = m_topBar->addContextAction(ui->actionLaunchInstance);
     launchButton->setObjectName("galaxyLaunchButton");  // colored: the one action that starts the game
-    m_topBar->addContextAction(ui->actionKillInstance, false);
+    auto* killButton = m_topBar->addContextAction(ui->actionKillInstance, false);
+    killButton->setObjectName("galaxyKillButton");  // a soft red background, like Launch's
     auto* profileButton = m_topBar->addContextAction(m_actionProfileMenu, false);
     profileButton->setPopupMode(QToolButton::InstantPopup);
     profileButton->setToolTip(tr("All profile actions"));
@@ -1973,12 +2031,19 @@ void MainWindow::setupGalaxyUi()
         m_launcherUpdateInstaller = release.installer;
         m_launcherUpdateAction->setToolTip(tr("Galaxy Launcher %1 is available: click to update").arg(release.version));
         m_launcherUpdateButton->show();
+        Notifications::instance()->post(Notifications::Kind::Info, tr("Galaxy Launcher %1 is available").arg(release.version),
+                                        tr("You can update now, or later with the red arrow in the top bar."),
+                                        { { tr("See what's new"), [this] { m_launcherUpdateAction->trigger(); } } });
     });
     connect(m_launcherUpdateAction, &QAction::triggered, this, [this] {
         LauncherUpdate::show(this, { m_launcherUpdateVersion, QString(), m_launcherUpdateNotes, m_launcherUpdatePage, m_launcherUpdateInstaller });
     });
     QTimer::singleShot(4000, m_launcherUpdate, &LauncherUpdate::check);
     connect(m_topBar, &GalaxyTopBar::backRequested, this, [this] {
+        if (panelShown()) {
+            leavePanels();
+            return;
+        }
         if (m_listView) {
             setListView(false);
         } else {
@@ -1992,6 +2057,9 @@ void MainWindow::setupGalaxyUi()
     m_sidebar->setAccountMenu(ui->accountsMenu);
     m_sidebar->setCollapsed(APPLICATION->settings()->get(GalaxySettings::SidebarCollapsed).toBool());
     connect(m_sidebar, &GalaxySidebar::profileActivated, this, [this](const QString& id) {
+        if (!leavePanels()) {
+            return;
+        }
         setSelectedInstanceById(id);
         if (!m_listView) {
             m_galaxy->enterSystem(id);
@@ -2000,6 +2068,15 @@ void MainWindow::setupGalaxyUi()
     connect(m_sidebar, &GalaxySidebar::profileDoubleClicked, this,
             [this](const QString& id) { launchInstance(APPLICATION->instances()->getInstanceById(id)); });
     connect(m_sidebar, &GalaxySidebar::profileContextMenuRequested, this, &MainWindow::showProfileMenu);
+    connect(m_sidebar, &GalaxySidebar::categoryContextMenuRequested, this, [this](const QString& category, const QPoint& globalPos) {
+        QMenu menu(this);
+        menu.addAction(QIcon::fromTheme("rename"), tr("Rename category..."), this, [this, category] { renameGroup(category); });
+        menu.addAction(QIcon::fromTheme("delete"), tr("Delete category"), this, [this, category] { deleteGroup(category); });
+        menu.addSeparator();
+        menu.addAction(QIcon::fromTheme("tag"), tr("New category..."), this, &MainWindow::createCategory);
+        menu.exec(globalPos);
+    });
+    connect(m_sidebar, &GalaxySidebar::createCategoryRequested, this, &MainWindow::createCategory);
     connect(m_sidebar, &GalaxySidebar::createProfileRequested, this, &MainWindow::on_actionAddInstance_triggered);
     connect(m_sidebar, &GalaxySidebar::settingsRequested, this, &MainWindow::on_actionSettings_triggered);
     connect(m_sidebar, &GalaxySidebar::collapsedChanged, this,
@@ -2014,6 +2091,7 @@ void MainWindow::setupGalaxyUi()
         launchInstance(APPLICATION->instances()->getInstanceById(id));
     });
     connect(m_galaxy, &GalaxyView::sunContextMenuRequested, this, &MainWindow::showProfileMenu);
+    connect(m_galaxy, &GalaxyView::createCategoryRequested, this, &MainWindow::createCategory);
     connect(m_galaxy, &GalaxyView::bodyActivated, this, [this](const QString& id, const CelestialBody& body) {
         ProjectActions::activate(this, APPLICATION->instances()->getInstanceById(id), body);
     });
@@ -2054,13 +2132,39 @@ void MainWindow::setupGalaxyUi()
         }
     });
     connect(UpdateChecker::instance(), &UpdateChecker::updatesChanged, this, &MainWindow::refreshUpdatesButton);
+    // A notification when a profile has new updates (not again for the same ones).
+    connect(UpdateChecker::instance(), &UpdateChecker::updatesChanged, this, [this](const QString& id) {
+        const auto count = static_cast<int>(UpdateChecker::instance()->updatesFor(id).size());
+        const int known = m_notifiedUpdates.value(id);
+        m_notifiedUpdates[id] = count;
+        auto* instance = dynamic_cast<MinecraftInstance*>(APPLICATION->instances()->getInstanceById(id));
+        if (!instance || count <= known) {
+            return;
+        }
+        Notifications::instance()->post(Notifications::Kind::Info, tr("Updates for %1").arg(instance->name()),
+                                        tr("%n project(s) can be updated.", nullptr, count),
+                                        { { tr("Review updates"), [this, id] {
+                                               if (auto* target = dynamic_cast<MinecraftInstance*>(APPLICATION->instances()->getInstanceById(id))) {
+                                                   ProjectActions::updateAll(this, target);
+                                               }
+                                           } } });
+    });
 
     auto* column = new QWidget(ui->centralWidget);
     auto* columnLayout = new QVBoxLayout(column);
     columnLayout->setContentsMargins(0, 0, 0, 0);
     columnLayout->setSpacing(0);
-    columnLayout->addWidget(m_stack, 1);
+    // Discover opens beside the galaxy (or the list) rather than in a window of its own.
+    m_discoverSplit = new QSplitter(Qt::Horizontal, column);
+    m_discoverSplit->setObjectName("galaxyDiscoverSplit");
+    m_discoverSplit->setChildrenCollapsible(false);
+    m_discoverSplit->setHandleWidth(4);
+    m_discoverSplit->addWidget(m_stack);
+    DiscoverWindow::setHost(m_discoverSplit);
+    columnLayout->addWidget(m_discoverSplit, 1);
     columnLayout->addWidget(m_searchBar);
+    // Notifications: top right, under the top bar.
+    new NotificationArea(column);
 
     ui->horizontalLayout->addWidget(m_sidebar);
     ui->horizontalLayout->addWidget(column, 1);
@@ -2085,6 +2189,9 @@ void MainWindow::setupGalaxyUi()
 
     setListView(GalaxySettings::initialView(APPLICATION->settings()) == "list", false);
 
+    // No status bar (see setStatusBarVisibility()), so no menu entry for it.
+    ui->actionToggleStatusBar->setVisible(false);
+
     m_discord = new DiscordPresence(this);
 
     // Custom window frame: buttons in the top bar, resizing from the edges.
@@ -2099,6 +2206,9 @@ void MainWindow::setupGalaxyUi()
 
 void MainWindow::setListView(bool list, bool remember)
 {
+    if (panelShown() && !leavePanels()) {
+        return;
+    }
     m_listView = list;
     m_stack->setCurrentIndex(list ? 1 : 0);
     m_searchBar->setListView(list);
@@ -2128,6 +2238,20 @@ void MainWindow::refreshUpdatesButton()
 void MainWindow::updateGalaxyNavigation()
 {
     if (!m_topBar) {
+        return;
+    }
+    m_searchBar->setVisible(!panelShown());
+    if (m_settingsPanel && m_stack->currentWidget() == m_settingsPanel) {
+        m_topBar->setLocation(tr("Settings"), QString(), true);
+        setWindowTitle(tr("Settings — %1").arg(APPLICATION->applicationDisplayName()));
+        return;
+    }
+    if (m_instancePanels && m_stack->currentWidget() == m_instancePanels) {
+        auto* window = qobject_cast<InstanceWindow*>(m_instancePanels->currentWidget());
+        auto* instance = window ? APPLICATION->instances()->getInstanceById(window->instanceId()) : nullptr;
+        const auto name = instance ? instance->name() : QString();
+        m_topBar->setLocation(tr("Profile"), name, true);
+        setWindowTitle(QStringLiteral("%1 — %2").arg(name, APPLICATION->applicationDisplayName()));
         return;
     }
     QString profile;
@@ -2198,6 +2322,14 @@ void MainWindow::populateProfileMenu(QMenu* menu)
     menu->addAction(ui->actionRenameInstance);
     menu->addAction(m_actionSunColor);
     menu->addAction(ui->actionChangeInstIcon);
+    if (const auto key = instance->iconKey(); !key.isEmpty() && key != QStringLiteral("default")) {
+        // Galaxy: back to no icon ("default"); the sidebar then shows the name without one.
+        menu->addAction(QIcon::fromTheme("delete"), tr("Remove Icon"), this, [id = instance->id()] {
+            if (auto* target = APPLICATION->instances()->getInstanceById(id)) {
+                target->setIconKey(QStringLiteral("default"));
+            }
+        });
+    }
     menu->addAction(ui->actionChangeInstGroup);
     menu->addSeparator();
     menu->addAction(ui->actionEditInstance);
@@ -2285,6 +2417,14 @@ MinecraftInstance* MainWindow::instanceForInstall()
 
 void MainWindow::openDiscover()
 {
+    // Galaxy: the Add content button toggles Discover.
+    if (DiscoverWindow::isOpenBeside()) {
+        DiscoverWindow::closeBeside();
+        return;
+    }
+    if (panelShown() && !leavePanels()) {
+        return;  // Discover goes beside the galaxy or the list, not beside settings
+    }
     if (APPLICATION->instances()->count() == 0) {
         const auto response = QMessageBox::question(this, tr("No profiles yet"),
                                                     tr("Mods, packs and shaders are installed into a profile. Create one now?"),
@@ -2295,6 +2435,124 @@ void MainWindow::openDiscover()
         return;
     }
     ProjectActions::openDownloadDialog(this, instanceForInstall(), ProjectActions::Category::Mods);
+}
+
+bool MainWindow::panelShown() const
+{
+    return m_stack && ((m_settingsPanel && m_stack->currentWidget() == m_settingsPanel) ||
+                       (m_instancePanels && m_stack->currentWidget() == m_instancePanels));
+}
+
+bool MainWindow::showSettingsPanel(const QString& page)
+{
+    if (!m_stack || QApplication::activeModalWidget() || !APPLICATION->globalSettingsProvider()) {
+        return false;
+    }
+    if (!DiscoverWindow::closeBeside()) {
+        return true;  // the user kept Discover (a selection is not installed yet)
+    }
+    if (!m_settingsPanel) {
+        // A profile window that is shown closes first (it saves on close), like switching to another window did.
+        if (m_instancePanels && m_stack->currentWidget() == m_instancePanels) {
+            if (auto* window = qobject_cast<InstanceWindow*>(m_instancePanels->currentWidget()); window && !window->requestClose()) {
+                return true;
+            }
+        }
+        m_settingsPanel = new QWidget(m_stack);
+        m_settingsPanel->setObjectName("galaxySettingsPanel");
+        auto* layout = new QVBoxLayout(m_settingsPanel);
+        layout->setContentsMargins(0, 0, 0, 0);
+        m_settingsContainer = new PageContainer(APPLICATION->globalSettingsProvider(), page, m_settingsPanel);
+        layout->addWidget(m_settingsContainer);
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Help | QDialogButtonBox::Close, m_settingsPanel);
+        buttons->button(QDialogButtonBox::Close)->setText(tr("Done"));
+        buttons->button(QDialogButtonBox::Close)->setToolTip(tr("Apply the settings and go back"));
+        buttons->button(QDialogButtonBox::Help)->setText(tr("Help"));
+        buttons->setContentsMargins(0, 0, 6, 6);
+        m_settingsContainer->addButtons(buttons);
+        connect(buttons->button(QDialogButtonBox::Close), &QPushButton::clicked, this, [this] { closeSettingsPanel(); });
+        connect(buttons->button(QDialogButtonBox::Help), &QPushButton::clicked, m_settingsContainer, &PageContainer::help);
+        m_stack->addWidget(m_settingsPanel);
+    } else if (!page.isEmpty()) {
+        m_settingsContainer->selectPage(page);
+    }
+    m_stack->setCurrentWidget(m_settingsPanel);
+    updateGalaxyNavigation();
+    return true;
+}
+
+bool MainWindow::closeSettingsPanel()
+{
+    if (!m_settingsPanel) {
+        return true;
+    }
+    if (!m_settingsContainer->prepareToClose()) {  // applies every page
+        return false;
+    }
+    auto* panel = m_settingsPanel;
+    const bool shown = m_stack->currentWidget() == panel;
+    m_settingsPanel = nullptr;
+    m_settingsContainer = nullptr;
+    m_stack->removeWidget(panel);
+    panel->deleteLater();
+    if (shown) {
+        m_stack->setCurrentIndex(m_listView ? 1 : 0);
+    }
+    APPLICATION->globalSettingsClosed();
+    updateGalaxyNavigation();
+    return true;
+}
+
+QWidget* MainWindow::instanceHost()
+{
+    if (!m_stack) {
+        return nullptr;
+    }
+    if (!m_instancePanels) {
+        m_instancePanels = new QStackedWidget(m_stack);
+        m_instancePanels->setObjectName("galaxyProfilePanels");
+        m_stack->addWidget(m_instancePanels);
+    }
+    return m_instancePanels;
+}
+
+void MainWindow::showInstancePanel(InstanceWindow* window)
+{
+    if (!instanceHost() || !window) {
+        return;
+    }
+    if ((m_settingsPanel && !closeSettingsPanel()) || !DiscoverWindow::closeBeside()) {
+        return;
+    }
+    if (m_instancePanels->indexOf(window) < 0) {
+        m_instancePanels->addWidget(window);
+        // Closed (its own Close button, Back, or another profile picked): back to what it covered.
+        connect(window, &InstanceWindow::isClosing, this, [this, window] {
+            m_instancePanels->removeWidget(window);
+            if (m_stack->currentWidget() == m_instancePanels) {
+                m_stack->setCurrentIndex(m_listView ? 1 : 0);
+            }
+            updateGalaxyNavigation();
+        });
+    }
+    m_instancePanels->setCurrentWidget(window);
+    m_stack->setCurrentWidget(m_instancePanels);
+    updateGalaxyNavigation();
+}
+
+bool MainWindow::leavePanels()
+{
+    if (!closeSettingsPanel()) {
+        return false;
+    }
+    if (m_instancePanels && m_stack->currentWidget() == m_instancePanels) {
+        if (auto* window = qobject_cast<InstanceWindow*>(m_instancePanels->currentWidget()); window && !window->requestClose()) {
+            return false;
+        }
+        m_stack->setCurrentIndex(m_listView ? 1 : 0);
+        updateGalaxyNavigation();
+    }
+    return true;
 }
 
 void MainWindow::applyWindowFrame()

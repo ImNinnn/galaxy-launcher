@@ -27,6 +27,7 @@
 class MinecraftInstance;
 class QComboBox;
 class QLabel;
+class QSplitter;
 class QTabBar;
 class QVBoxLayout;
 
@@ -48,6 +49,12 @@ class DiscoverWindow : public QDialog {
    public:
     /** Opens (or raises) the window for a profile and category, optionally pre-filled with a search. */
     static void showFor(QWidget* parent, MinecraftInstance* instance, ProjectActions::Category category, const QString& search = QString());
+    /** Galaxy: open Discover beside the views in this splitter (the main window's) instead of as a window. */
+    static void setHost(QSplitter* host);
+    /** Galaxy: whether Discover is open beside the views. */
+    static bool isOpenBeside();
+    /** Galaxy: closes Discover beside the views; false if it stays (the user kept an uninstalled selection). */
+    static bool closeBeside();
 
    public slots:
     void reject() override;
@@ -57,7 +64,7 @@ class DiscoverWindow : public QDialog {
     bool eventFilter(QObject* watched, QEvent* event) override;
 
    private:
-    explicit DiscoverWindow(QWidget* parent);
+    DiscoverWindow(QWidget* parent, bool embedded);
 
     void setTarget(MinecraftInstance* instance, ProjectActions::Category category, const QString& search);
     void rebuild(const QString& search = QString());
@@ -67,6 +74,8 @@ class DiscoverWindow : public QDialog {
     void showPlaceholder(const QString& text, const QString& buttonText, const std::function<void()>& action);
 
     static QPointer<DiscoverWindow> s_window;
+    static QPointer<QSplitter> s_host;
+    bool m_embedded = false;
 
     QComboBox* m_profile = nullptr;
     QTabBar* m_tabs = nullptr;
