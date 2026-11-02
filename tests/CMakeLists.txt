@@ -75,3 +75,6 @@ ecm_add_test(GalaxyLayout_test.cpp LINK_LIBRARIES Launcher_logic Qt${QT_VERSION_
 
 ecm_add_test(AccountRefresh_test.cpp LINK_LIBRARIES Launcher_logic Qt${QT_VERSION_MAJOR}::Test
     TEST_NAME AccountRefresh)
+
+ecm_add_test(DiscordPresence_test.cpp LINK_LIBRARIES Launcher_logic Qt${QT_VERSION_MAJOR}::Test
+    TEST_NAME DiscordPresence)

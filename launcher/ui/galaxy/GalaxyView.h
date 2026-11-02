@@ -370,6 +370,9 @@ class GalaxyView : public QWidget {
         qreal formStart = -1;
         bool fromSun = false;  ///< Exploding out of the sun (after the launch pull-in) rather than from the orbits.
         qreal reformStart = -1;
+        // Launched again while re-forming: the re-form runs backwards from reverseFrom, from reverseStart on.
+        qreal reverseStart = -1;
+        qreal reverseFrom = 0;
     };
     struct NebulaMix {
         qreal form = 0;    ///< 0..1 explosion progress
@@ -380,6 +383,14 @@ class GalaxyView : public QWidget {
     };
     QHash<QString, NebulaState> m_nebulae;
     void syncNebulae();
+    /** Launched again before the re-form finished: the re-form runs backwards, so everything retraces its path. */
+    void reverseReform(NebulaState& nebula) const;
+    /** How far a nebula has re-formed now (0 = fully a nebula), whether re-forming or running that backwards. */
+    qreal reformProgress(const NebulaState& nebula) const;
+    /** Starts a nebula's re-form (the game stopped) from where its bodies are, also while it is still forming. */
+    void startReform(NebulaState& nebula) const;
+    /** Profiles relaunched while their nebula re-formed: it stays until Prism reports them running (at most 20 s). */
+    QHash<QString, qreal> m_relaunchHold;
     NebulaMix nebulaMix(const QString& instanceId) const;
     /** 1 when a search inside the entered system's nebula matches node n (its sparkle shows its body), else 0. */
     qreal revealTarget(int n) const;

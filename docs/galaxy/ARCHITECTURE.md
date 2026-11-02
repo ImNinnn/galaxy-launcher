@@ -36,7 +36,7 @@ All new code lives in `launcher/ui/galaxy/` unless noted.
 | `UpdateChecker` | Background Modrinth update checks (Prism's `ModrinthCheckUpdate`) when a profile is opened, once its folders have loaded; includes files with locked updates (modpack content). Marks content in the galaxy and, through a hook in `ResourceFolderModel::ProxyModel`, in Prism's list pages. Keeps each update's ready download task (`updatesFor()`), valid while the file is unchanged. |
 | `LauncherUpdate` | Startup check of the GitHub releases (`BuildConfig.GALAXY_RELEASES_REPO`, previews included) against `BuildConfig.GALAXY_VERSION`; the main window shows a red arrow and `show()` explains the update. Galaxy Launcher's version is separate from the Prism Launcher version it is built on. |
 | `UpdatesDialog` | Every update of a profile with changelogs; `ProjectActions::updateAll()` runs the chosen download tasks together and re-disables files that were disabled. |
-| `DiscordPresence` | Discord Rich Presence over Discord's local IPC socket (handshake, `SET_ACTIVITY`, reconnects). |
+| `DiscordPresence` | Discord Rich Presence over Discord's local IPC socket (handshake, `SET_ACTIVITY`, reconnects). While the playing profile has a Rich Presence mod (`isRichPresenceModFile()`, by file name), it clears its activity so the mod's shows. |
 | `MicrosoftLoginSetup` | Explains how to get a Microsoft application (client) ID and stores it in Prism's `MSAClientIDOverride` setting. |
 | `SunColor` | Per-profile sun colors (stored in `instance.cfg` as `GalaxySunColor`) and the color picker. |
 | `GalaxySidebar`, `GalaxyTopBar`, `GalaxySearchBar` | Window chrome. Top bar buttons are bound to MainWindow's existing `QAction`s. The sidebar's `SidebarCategoryModel` lists profiles under a header per category (Prism's instance groups and their collapsed state); it keeps its own selection model in step with Prism's, and its drag and drop (`dropMimeData`) reorders profiles and moves them between categories. |
@@ -97,6 +97,8 @@ All new code lives in `launcher/ui/galaxy/` unless noted.
   (`Qt::Widget`, property `galaxyEmbedded`, not counted as an open window). While a dialog is open over the main
   window they still open as windows. Closing the main window closes (and saves) them first.
 * `DiscoverWindow::setHost()`: Discover opens in a splitter beside the views (`m_discoverSplit`) instead of a window.
+* `PrintInstanceInfo` (a launch step) gathers the hardware lines on a worker thread and probes the GPU (`lspci`) once
+  per session; it blocked the UI for about a second at every launch. `LaunchTask` logs each step's name (debug).
 * `MainWindow`: no status bar (`setStatusBarVisibility()` always hides it); play time is in the galaxy's tooltips.
   Installing, updating and *Update All* run in the background with notifications (`ProjectActions::runWithNotification`).
 * `MainWindow` hosts the chrome, routes launches through `launchInstance()` (adds the cosmetic animation) and
@@ -176,7 +178,9 @@ ResourceFolderModels ──signals──▶ SystemContent::rebuild() (debounced 
 * `GalaxyView::syncNebulae()` follows each profile's running state. When the launch pull-in completes (or a game is
   started elsewhere), a `NebulaState` records when the nebula formed (exploding out of the sun or from the orbits);
   when the game stops, it reforms over 1.8 s and is removed. Bodies blend between their orbit position and a fixed,
-  hashed sparkle position; the sun fades into, and condenses out of, the clouds.
+  hashed sparkle position; the sun fades into, and condenses out of, the clouds. A re-form starts from where the
+  bodies are (`startReform()`), and launching again while it re-forms reverses it (`reverseReform()`, no pull-in or
+  trails); `m_relaunchHold` keeps the nebula until Prism reports the profile running (at most 20 s).
 * Project names follow `m_labelFade`, which eases towards `labelTarget()`: hidden from the moment Launch is pressed
   while the profile launches or runs, shown again once it reforms.
 * Sparkle hit shapes have `priority`: `hitTest()` picks the nearest sparkle under the cursor before testing anything

@@ -98,7 +98,8 @@ those off).
 The window has its own minimize, maximize and close buttons in the top bar (drag empty top bar space to move it,
 double-click to maximize, drag an edge to resize). Switching profiles from the sidebar flies straight from one
 system to the next. With Discord running, your status shows "In the launcher" or "Playing <profile>"
-with the loader and Minecraft version, the launcher's icon and your account's head.
+with the loader and Minecraft version, the launcher's icon and your account's head. When the profile you play has a
+Rich Presence mod of its own (CraftPresence, Simple RPC, Discord RPC, ...), Galaxy Launcher leaves Discord to it.
 
 ![Launch sequence](screenshots/launch-sequence.jpg)
 

@@ -39,6 +39,8 @@ class DiscordPresence : public QObject {
     Q_OBJECT
    public:
     explicit DiscordPresence(QObject* parent = nullptr);
+    /** True for a mod file that shows its own Discord status (then Galaxy leaves Discord to it while it runs). */
+    static bool isRichPresenceModFile(const QString& fileName);
     ~DiscordPresence() override;
 
     /** Re-reads the setting (Settings > Galaxy). */
@@ -53,6 +55,8 @@ class DiscordPresence : public QObject {
     void watchInstances();
     void fetchApplicationIcon();
     MinecraftInstance* playingInstance() const;
+    /** True when an enabled mod of the profile shows its own Discord status; Galaxy then leaves Discord to it. */
+    static bool hasRichPresenceMod(MinecraftInstance* instance);
 
     QLocalSocket* m_socket = nullptr;
     QByteArray m_buffer;

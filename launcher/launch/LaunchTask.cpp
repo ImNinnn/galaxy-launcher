@@ -94,6 +94,7 @@ void LaunchTask::onStepFinished()
     // initial -> just start the first step
     if (currentStep == -1) {
         currentStep++;
+        qDebug() << "Launch step:" << m_steps[currentStep]->metaObject()->className();
         m_steps[currentStep]->start();
         return;
     }
@@ -106,6 +107,7 @@ void LaunchTask::onStepFinished()
         } else {
             currentStep++;
             step = m_steps[currentStep];
+            qDebug() << "Launch step:" << step->metaObject()->className();
             step->start();
         }
     } else {

@@ -323,10 +323,40 @@ void runLaunchTest(MainWindow* window, GalaxyView* galaxy, const QString& direct
                     qInfo() << "Launch test: window open after the game:" << top->windowTitle();
                 }
             }
-            // Prism opens the instance console after a killed game; close everything so the launcher exits.
-            QTimer::singleShot(2500, window, [window, directory] {
-                window->grab().save(QDir(directory).filePath("17b-reformed.png"));
-                QApplication::closeAllWindows();
+            // Launched again right away, while the nebula re-forms: it must turn around smoothly (it jumped and drew
+            // trails). Only the animation is replayed here; the game is not started again.
+            QTimer::singleShot(400, window, [window, galaxy, directory, target = instance->id()] {
+                auto last = std::make_shared<QHash<QString, QPointF>>();
+                auto jump = std::make_shared<qreal>(0);
+                auto sample = [galaxy, last, jump] {
+                    for (const auto& body : galaxy->currentBodies()) {
+                        const QPointF at = galaxy->bodyScreenPosition(body.key);
+                        if (!at.isNull() && last->contains(body.key)) {
+                            *jump = std::max(*jump, QLineF(last->value(body.key), at).length());
+                        }
+                        last->insert(body.key, at);
+                    }
+                };
+                sample();
+                galaxy->playLaunchAnimation(target);
+                for (int k = 1; k <= 30; k++) {
+                    QTimer::singleShot(k * 33, window, [window, galaxy, directory, sample, jump, k] {
+                        galaxy->repaint();
+                        sample();
+                        if (k == 15) {
+                            window->grab().save(QDir(directory).filePath("17c-relaunched-while-reforming.png"));
+                        }
+                        if (k == 30) {
+                            qInfo() << "Relaunch test: largest move of a body between frames" << *jump << "px"
+                                    << (*jump < 40 ? "PASSED" : "FAILED");
+                            // Prism opens the instance console after a killed game; close everything so the launcher exits.
+                            QTimer::singleShot(1500, window, [window, directory] {
+                                window->grab().save(QDir(directory).filePath("17b-reformed.png"));
+                                QApplication::closeAllWindows();
+                            });
+                        }
+                    });
+                }
             });
         });
         finish->start(500);

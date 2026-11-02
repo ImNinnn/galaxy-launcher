@@ -19,6 +19,9 @@
 #include <launch/LaunchTask.h>
 #include "PrintInstanceInfo.h"
 
+#include <QFutureWatcher>
+#include <QtConcurrent>
+
 #include "HardwareInfo.h"
 
 #if defined(Q_OS_FREEBSD)
@@ -56,11 +59,11 @@ void runPciconf(QStringList& log)
 }  // namespace
 #endif
 
-void PrintInstanceInfo::executeTask()
+namespace {
+/** The hardware part of the log: CPU, RAM and GPU. Probing the GPU runs `lspci`, which can take a second. */
+QStringList hardwareLines()
 {
-    auto instance = m_parent->instance();
     QStringList log;
-
     log << "";
     log << "OS: " + QString("%1 | %2 | %3").arg(QSysInfo::prettyProductName(), QSysInfo::kernelType(), QSysInfo::kernelVersion());
 #ifdef Q_OS_FREEBSD
@@ -75,10 +78,35 @@ void PrintInstanceInfo::executeTask()
 #endif
 
 #endif
-    log.append(HardwareInfo::gpuInfo());
-    log << "";
+    return log;
+}
+}  // namespace
 
-    logLines(log, MessageLevel::Launcher);
-    logLines(instance->verboseDescription(m_session, m_targetToJoin), MessageLevel::Launcher);
-    emitSucceeded();
+void PrintInstanceInfo::executeTask()
+{
+    // Galaxy: the hardware probe runs on a worker thread (it froze the launcher for about a second at every launch),
+    // and the GPU part, which does not change while the launcher runs, is probed once.
+    static QStringList gpu;
+    auto* watcher = new QFutureWatcher<QStringList>(this);
+    connect(watcher, &QFutureWatcher<QStringList>::finished, this, [this, watcher] {
+        auto log = watcher->result();
+        watcher->deleteLater();
+        if (gpu.isEmpty()) {
+            gpu = log.takeLast().split('\n');
+        } else {
+            log.removeLast();
+        }
+        log.append(gpu);
+        log << "";
+        logLines(log, MessageLevel::Launcher);
+        auto instance = m_parent->instance();
+        logLines(instance->verboseDescription(m_session, m_targetToJoin), MessageLevel::Launcher);
+        emitSucceeded();
+    });
+    const bool probeGpu = gpu.isEmpty();
+    watcher->setFuture(QtConcurrent::run([probeGpu] {
+        auto log = hardwareLines();
+        log << (probeGpu ? HardwareInfo::gpuInfo().join('\n') : QString());
+        return log;
+    }));
 }

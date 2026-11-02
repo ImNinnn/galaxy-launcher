@@ -19,6 +19,7 @@
 
 #include <QActionGroup>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QGuiApplication>
 #include <QWindow>
 #include <QFutureWatcher>
@@ -32,6 +33,7 @@
 #include <QPainterPath>
 #include <QPushButton>
 #include <QRadialGradient>
+#include <QScopeGuard>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QWheelEvent>
@@ -1203,6 +1205,11 @@ void GalaxyView::updateTicker()
 void GalaxyView::tick()
 {
     const qreal t = now();
+    // Developer tooling: report frames that came much too late (something blocked the UI thread).
+    static const bool reportStalls = qEnvironmentVariableIsSet("GALAXY_DEV_SNAPSHOTS");
+    if (reportStalls && m_lastTick > 0 && t - m_lastTick > 0.12) {
+        qInfo() << "Galaxy: frame stall of" << qRound((t - m_lastTick) * 1000) << "ms";
+    }
     const qreal dt = std::clamp(t - m_lastTick, 0.0, 0.1);  // frame-rate independent, robust to stalls
     m_lastTick = t;
 
@@ -1375,12 +1382,19 @@ void GalaxyView::syncNebulae()
                     m_launchId.clear();
                 }
             } else if (it->reformStart >= 0) {
-                *it = { t, false, -1 };  // launched again while reforming
+                reverseReform(*it);  // launched again while reforming: turn around from where everything is
             }
+            m_relaunchHold.remove(node.id);
         } else if (it != m_nebulae.end()) {
             const qreal reformDuration = m_reducedMotion ? 0.35 : NebulaReformDuration;
+            // Relaunched: Prism reports "running" only once the account is checked; until then the nebula stays.
+            const bool held = m_relaunchHold.contains(node.id) && t - m_relaunchHold.value(node.id) < 20.0;
+            if (held) {
+                continue;
+            }
+            m_relaunchHold.remove(node.id);
             if (it->reformStart < 0) {
-                it->reformStart = t;
+                startReform(*it);
             } else if (t - it->reformStart > reformDuration) {
                 m_nebulae.erase(it);
             }
@@ -1389,6 +1403,49 @@ void GalaxyView::syncNebulae()
     for (auto it = m_nebulae.begin(); it != m_nebulae.end();) {
         it = present.contains(it.key()) ? std::next(it) : m_nebulae.erase(it);
     }
+}
+
+void GalaxyView::startReform(NebulaState& nebula) const
+{
+    // From where the bodies are: forming from the orbits puts them at orbit + (spot - orbit) * easeOut(form), re-forming
+    // at spot + (orbit - spot) * easeInOut(reform); the same point when easeInOut(reform) = (1 - form)^3. (A nebula that
+    // exploded out of the sun starts its re-form from the sparkles.)
+    const qreal t = now();
+    const qreal formDuration = m_reducedMotion ? 0.35 : NebulaFormDuration;
+    const qreal reformDuration = m_reducedMotion ? 0.35 : NebulaReformDuration;
+    const qreal form = clamp01((t - nebula.formStart) / formDuration);
+    qreal reform = 0;
+    if (nebula.reverseStart >= 0) {
+        reform = reformProgress(nebula);  // was running its re-form backwards: forwards again from there
+        nebula.reverseStart = -1;
+    } else if (!nebula.fromSun && form < 1) {
+        const qreal target = std::pow(1 - form, 3.0);
+        qreal lo = 0;
+        qreal hi = 1;
+        for (int i = 0; i < 30; i++) {  // easeInOut rises monotonically: bisection
+            const qreal mid = (lo + hi) / 2;
+            (easeInOut(mid) < target ? lo : hi) = mid;
+        }
+        reform = lo;
+    }
+    nebula.reformStart = t - reform * reformDuration;
+}
+
+void GalaxyView::reverseReform(NebulaState& nebula) const
+{
+    nebula.reverseFrom = reformProgress(nebula);
+    nebula.reverseStart = now();
+    nebula.reformStart = -1;
+}
+
+qreal GalaxyView::reformProgress(const NebulaState& nebula) const
+{
+    const qreal t = now();
+    const qreal reformDuration = m_reducedMotion ? 0.35 : NebulaReformDuration;
+    if (nebula.reverseStart >= 0) {
+        return std::max(0.0, nebula.reverseFrom - (t - nebula.reverseStart) / reformDuration);
+    }
+    return nebula.reformStart >= 0 ? clamp01((t - nebula.reformStart) / reformDuration) : 0.0;
 }
 
 GalaxyView::NebulaMix GalaxyView::nebulaMix(const QString& instanceId) const
@@ -1400,9 +1457,8 @@ GalaxyView::NebulaMix GalaxyView::nebulaMix(const QString& instanceId) const
     }
     const qreal t = now();
     const qreal form = m_reducedMotion ? 0.35 : NebulaFormDuration;
-    const qreal reform = m_reducedMotion ? 0.35 : NebulaReformDuration;
     mix.form = std::max(1e-3, clamp01((t - it->formStart) / form));
-    mix.reform = it->reformStart >= 0 ? clamp01((t - it->reformStart) / reform) : 0.0;
+    mix.reform = reformProgress(*it);
     mix.fromSun = it->fromSun;
     return mix;
 }
@@ -1418,6 +1474,9 @@ qreal GalaxyView::labelTarget() const
     // Prism reports "running" from the start of launch preparation, so this covers the whole launch.
     const int index = systemIndexOf(m_systemId);
     const auto it = m_nebulae.constFind(m_systemId);
+    if (it != m_nebulae.constEnd() && it->reverseStart >= 0) {
+        return 0;  // launched again while re-forming: the names stay hidden
+    }
     const bool reforming = it != m_nebulae.constEnd() && it->reformStart >= 0;
     return index >= 0 && m_systems[index].running && !reforming ? 0 : 1;
 }
@@ -1426,7 +1485,7 @@ bool GalaxyView::nebulaAnimating() const
 {
     const qreal t = now();
     for (const auto& state : m_nebulae) {
-        if (t - state.formStart < NebulaFormDuration || state.reformStart >= 0) {
+        if (t - state.formStart < NebulaFormDuration || state.reformStart >= 0 || reformProgress(state) > 0) {
             return true;
         }
     }
@@ -1435,6 +1494,15 @@ bool GalaxyView::nebulaAnimating() const
 
 void GalaxyView::playLaunchAnimation(const QString& instanceId)
 {
+    // Launched again while its nebula is still re-forming: the re-form turns around (no pull-in, which would fight it
+    // and leave trails across the system).
+    if (auto it = m_nebulae.find(instanceId); it != m_nebulae.end() && it->reformStart >= 0) {
+        reverseReform(*it);
+        m_relaunchHold.insert(instanceId, now());
+        updateTicker();
+        update();
+        return;
+    }
     if (!m_launchAnimation && !m_reducedMotion) {
         return;
     }
@@ -1686,6 +1754,15 @@ QPointF GalaxyView::nodePosition(int n) const
 
 void GalaxyView::paintEvent(QPaintEvent*)
 {
+    // Developer tooling: report frames that take long to paint.
+    static const bool reportSlowPaints = qEnvironmentVariableIsSet("GALAXY_DEV_SNAPSHOTS");
+    QElapsedTimer paintTimer;
+    paintTimer.start();
+    const auto reportPaint = qScopeGuard([&paintTimer] {
+        if (reportSlowPaints && paintTimer.elapsed() > 60) {
+            qInfo() << "Galaxy: slow paint of" << paintTimer.elapsed() << "ms";
+        }
+    });
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, m_renderQuality > 0);
     m_hitShapes.clear();
@@ -2662,8 +2739,8 @@ void GalaxyView::paintSystemLayer(QPainter& p, qreal alpha, QPointF origin, qrea
             continue;
         }
 
-        // Trail while being pulled into the sun.
-        if (launchMotion && pl.pull.pull > 0.02) {
+        // Trail while being pulled into the sun (never while the nebula moves the bodies).
+        if (launchMotion && pl.pull.pull > 0.02 && !nebula.active()) {
             const QPointF from = nodePosition(n) * (1 - pl.pull.trailFrom);
             const QPointF a = project(from.x(), 0, from.y());
             QLinearGradient trail(a, pl.screen);

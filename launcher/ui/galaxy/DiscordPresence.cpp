@@ -18,12 +18,14 @@
 #include "DiscordPresence.h"
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QLocalSocket>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QRegularExpression>
 #include <QUuid>
 #include <QtEndian>
 
@@ -271,9 +273,35 @@ MinecraftInstance* DiscordPresence::playingInstance() const
     return latest;
 }
 
+bool DiscordPresence::isRichPresenceModFile(const QString& fileName)
+{
+    // Mods that show their own Discord status (CraftPresence, Simple RPC, Discord RPC, ...), found by file name.
+    static const QRegularExpression rpc(QStringLiteral("craftpresence|rich[-_ ]?presence|discord[-_ ]?rpc|simple[-_ ]?rpc|(^|[^a-z])rpc([^a-z]|$)"),
+                                        QRegularExpression::CaseInsensitiveOption);
+    return rpc.match(fileName).hasMatch();
+}
+
+bool DiscordPresence::hasRichPresenceMod(MinecraftInstance* instance)
+{
+    const QDir mods(instance->modsRoot());
+    for (const auto& name : mods.entryList({ QStringLiteral("*.jar"), QStringLiteral("*.zip") }, QDir::Files)) {
+        if (isRichPresenceModFile(name)) {
+            return true;  // (".disabled" files are not listed: a disabled mod shows nothing)
+        }
+    }
+    return false;
+}
+
 void DiscordPresence::pushActivity()
 {
     if (!m_ready) {
+        return;
+    }
+    // A mod with its own Rich Presence wins while its game runs: Galaxy clears its status instead of competing.
+    if (auto* playing = playingInstance(); playing && hasRichPresenceMod(playing)) {
+        send(Frame, QJsonObject{ { "cmd", "SET_ACTIVITY" },
+                                 { "args", QJsonObject{ { "pid", static_cast<qint64>(QCoreApplication::applicationPid()) } } },
+                                 { "nonce", QUuid::createUuid().toString(QUuid::WithoutBraces) } });
         return;
     }
     QJsonObject activity;
