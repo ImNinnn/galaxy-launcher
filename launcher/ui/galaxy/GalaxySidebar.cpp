@@ -43,6 +43,7 @@
 #include "InstanceList.h"
 #include "ProfileOrganizer.h"
 #include "CelestialPainter.h"
+#include "GalaxyLook.h"
 #include "SunColor.h"
 #include "SystemContent.h"
 #include "minecraft/MinecraftInstance.h"
@@ -415,6 +416,9 @@ namespace {
 /** The collapse and expand chevrons, drawn at the size of the sidebar's other icons. */
 QIcon chevronIcon(bool pointsRight)
 {
+    if (GalaxyLook::orbit()) {
+        return GalaxyLook::pixelIcon(pointsRight ? "chevron_right" : "chevron_left");
+    }
     QIcon icon;
     for (const int size : { 16, 32, 48 }) {
         QPixmap pixmap(size, size);
@@ -479,8 +483,54 @@ class ProfileDelegate : public QStyledItemDelegate {
         return compact ? QSize(48, 44) : QSize(200, line * 2 + 16);
     }
 
+    /** Orbit's header: a small bold uppercase label in faint grey, a pixel chevron and a square count. */
+    void paintOrbitHeader(QPainter* p, const QStyleOptionViewItem& option, const QModelIndex& index) const
+    {
+        namespace O = GalaxyLook::Orbit;
+        p->save();
+        const QRect r = option.rect.adjusted(6, 2, -6, -2);
+        const bool collapsed = index.data(SidebarCategoryModel::CollapsedRole).toBool();
+        if (option.state & (QStyle::State_MouseOver | QStyle::State_HasFocus)) {
+            p->fillRect(r, O::Panel2);
+        }
+        const auto chevron = GalaxyLook::pixelIcon(collapsed ? "chevron_right" : "chevron_down", O::Faint.lighter(125));
+        if (compact) {
+            const int y = r.center().y();
+            p->fillRect(QRect(r.left() + 2, y, r.width() / 2 - 11, 1), O::Border);
+            p->fillRect(QRect(r.center().x() + 9, y, r.right() - r.center().x() - 10, 1), O::Border);
+            chevron.paint(p, QRect(r.center().x() - 4, y - 4, 9, 9));
+            p->restore();
+            return;
+        }
+        chevron.paint(p, QRect(r.left() + 8, r.center().y() - 4, 9, 9));
+        QFont font = option.font;
+        font.setBold(true);
+        font.setPointSizeF(font.pointSizeF() * 0.82);
+        font.setCapitalization(QFont::AllUppercase);
+        font.setLetterSpacing(QFont::PercentageSpacing, 110);
+        const QFontMetricsF fm(font);
+        const QString count = QString::number(index.data(SidebarCategoryModel::CountRole).toInt());
+        const qreal countWidth = fm.horizontalAdvance(count) + 12;
+        const QRectF nameRect(r.left() + 24, r.top(), r.width() - 24 - countWidth - 8, r.height());
+        p->setFont(font);
+        p->setPen(O::Faint.lighter(120));
+        p->drawText(nameRect, Qt::AlignLeft | Qt::AlignVCenter,
+                    fm.elidedText(index.data(Qt::DisplayRole).toString(), Qt::ElideRight, nameRect.width()));
+        const QRect countRect = QRectF(r.right() - countWidth - 2, r.center().y() - fm.height() / 2, countWidth, fm.height()).toAlignedRect();
+        p->fillRect(countRect, O::Panel2);
+        p->setPen(O::Border);
+        p->drawRect(countRect.adjusted(0, 0, -1, -1));
+        p->setPen(O::Muted);
+        p->drawText(countRect, Qt::AlignCenter, count);
+        p->restore();
+    }
+
     void paintHeader(QPainter* p, const QStyleOptionViewItem& option, const QModelIndex& index) const
     {
+        if (GalaxyLook::orbit()) {
+            paintOrbitHeader(p, option, index);
+            return;
+        }
         p->save();
         p->setRenderHint(QPainter::Antialiasing);
         const QRectF r = QRectF(option.rect).adjusted(6, 2, -6, -2);
@@ -547,13 +597,23 @@ class ProfileDelegate : public QStyledItemDelegate {
         const bool selected = option.state & QStyle::State_Selected;
         const bool hovered = option.state & QStyle::State_MouseOver;
         const QColor accent(167, 139, 250);
+        const bool orbit = GalaxyLook::orbit();
+        namespace O = GalaxyLook::Orbit;
 
-        if (selected || hovered) {
+        if (orbit) {
+            // Orbit: square rows; the selected one has Orbit's 2 px red bar on the left.
+            if (selected || hovered) {
+                p->fillRect(r.toAlignedRect(), selected ? O::PanelHover : O::Panel2);
+            }
+            if (selected) {
+                p->fillRect(QRect(r.toAlignedRect().left(), r.toAlignedRect().top(), 2, r.toAlignedRect().height()), O::Red);
+            }
+        } else if (selected || hovered) {
             p->setPen(selected ? QPen(QColor(167, 139, 250, 170), 1) : Qt::NoPen);
             p->setBrush(selected ? QColor(124, 77, 255, 70) : QColor(255, 255, 255, 14));
             p->drawRoundedRect(r, 9, 9);
         }
-        if (selected) {
+        if (selected && !orbit) {
             // A bar on the left edge marks the selection without relying on color alone.
             p->setPen(Qt::NoPen);
             p->setBrush(accent);
@@ -567,7 +627,13 @@ class ProfileDelegate : public QStyledItemDelegate {
         if (sparkle > 0.01) {
             CelestialPainter::drawSparkle(*p, sunAt, (compact ? 3.0 : 2.7) * (0.6 + 0.4 * sparkle), sun, 0.75, sparkle);
         }
-        if (sparkle < 0.99) {
+        if (sparkle < 0.99 && orbit) {
+            // Pixel art, like in the galaxy; it shrinks and fades as the sparkle appears.
+            p->save();
+            p->setOpacity(p->opacity() * (1 - sparkle));
+            CelestialPainter::drawSun(*p, sunAt, (compact ? 7 : 6.5) * (1 - 0.45 * sparkle), sun, 1.0, 1);
+            p->restore();
+        } else if (sparkle < 0.99) {
             // The sun shrinks and fades as the sparkle appears.
             p->save();
             p->setOpacity(p->opacity() * (1 - sparkle));
@@ -604,7 +670,7 @@ class ProfileDelegate : public QStyledItemDelegate {
             const qreal badgeWidth = badge.isEmpty() ? 0 : QFontMetricsF(option.font).horizontalAdvance(badge) + 14;
 
             p->setFont(nameFont);
-            p->setPen(QColor(236, 233, 255));
+            p->setPen(orbit ? O::Text : QColor(236, 233, 255));
             const QRectF nameRect(textLeft, r.top() + 5, textWidth - badgeWidth, fm.height());
             p->drawText(nameRect, Qt::AlignLeft | Qt::AlignVCenter, fm.elidedText(inst->name(), Qt::ElideRight, nameRect.width()));
 
@@ -612,6 +678,18 @@ class ProfileDelegate : public QStyledItemDelegate {
                 QFont badgeFont = option.font;
                 badgeFont.setPointSizeF(badgeFont.pointSizeF() * 0.8);
                 p->setFont(badgeFont);
+                const QRectF badgeRect(r.right() - badgeWidth - 2, nameRect.top() + 1, badgeWidth, fm.height() - 2);
+                if (orbit) {
+                    const QRect box = badgeRect.toAlignedRect();
+                    p->fillRect(box, QColor(0x1E, 0x3A, 0x24));
+                    p->setPen(O::Green.darker(140));
+                    p->drawRect(box.adjusted(0, 0, -1, -1));
+                    p->setPen(O::Green);
+                    p->drawText(box, Qt::AlignCenter, badge);
+                    badge.clear();
+                }
+            }
+            if (!badge.isEmpty()) {
                 const QRectF badgeRect(r.right() - badgeWidth - 2, nameRect.top() + 1, badgeWidth, fm.height() - 2);
                 p->setPen(QPen(QColor(134, 239, 172, 200), 1));
                 p->setBrush(QColor(34, 80, 50, 160));
@@ -623,7 +701,7 @@ class ProfileDelegate : public QStyledItemDelegate {
             QFont subFont = option.font;
             subFont.setPointSizeF(subFont.pointSizeF() * 0.86);
             p->setFont(subFont);
-            p->setPen(QColor(170, 163, 205));
+            p->setPen(orbit ? O::Muted : QColor(170, 163, 205));
             const auto loaders = SystemContent::loaderSummary(inst);
             QString sub = SystemContent::minecraftVersion(inst);
             if (!loaders.isEmpty()) {
@@ -730,6 +808,15 @@ GalaxySidebar::GalaxySidebar(QAbstractItemModel* profiles, QItemSelectionModel* 
     m_settings->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_settings->setToolTip(tr("Launcher settings"));
     layout->addWidget(m_settings);
+
+    // Orbit's pixel icons with the Orbit look.
+    GalaxyLook::bindIcon(m_add, "plus");
+    GalaxyLook::bindIcon(m_addCategory, "tag");
+    GalaxyLook::bindIcon(m_settings, "settings");
+    GalaxyLook::onChange(this, [this] {
+        m_collapse->setIcon(chevronIcon(m_collapsed));
+        m_list->viewport()->update();
+    });
 
     auto idOf = [](const QModelIndex& index) { return index.data(InstanceList::InstanceIDRole).toString(); };
     // Clicking (or pressing Enter on) a category header collapses or expands it.

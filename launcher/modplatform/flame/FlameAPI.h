@@ -14,7 +14,7 @@
 #include "modplatform/flame/FlameModIndex.h"
 #include "modplatform/flame/FlamePackIndex.h"
 
-class FlameAPI final : public ResourceAPI {
+class FlameAPI : public ResourceAPI {
    public:
     static const FlameAPI& get()
     {
@@ -64,6 +64,9 @@ class FlameAPI final : public ResourceAPI {
 
    public:
     static bool validateModLoaders(ModPlatform::ModLoaderTypes loaders);
+    /** Galaxy Launcher: CurseForge's class ID for a kind of resource, and its mod loader filter ("[4,5]"). */
+    static int classIdFor(ModPlatform::ResourceType type);
+    static QString modLoaderFilter(ModPlatform::ModLoaderTypes types);
 
    public slots:
     Net::RPC::Spec<ModPlatform::IndexedPack> getProject(const QString& id) const override;
@@ -71,7 +74,7 @@ class FlameAPI final : public ResourceAPI {
 
     Net::RPC::Spec<QList<ModPlatform::IndexedPack>> searchProjects(const SearchArgs& args) const override;
 
-   private:
+   protected:  // Galaxy Launcher: CurseForgeAPI replaces the search
     std::optional<QString> getDependencyURL(const DependencySearchArgs& args) const override;
 
     static QUrl searchProjectsURL(const SearchArgs& args);

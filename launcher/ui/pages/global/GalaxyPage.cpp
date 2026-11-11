@@ -31,6 +31,7 @@
 #include "InstanceList.h"
 #include "settings/SettingsObject.h"
 #include "ui/galaxy/GalaxySettings.h"
+#include "ui/galaxy/GalaxyLook.h"
 
 GalaxyPage::GalaxyPage(QWidget* parent) : QWidget(parent)
 {
@@ -120,7 +121,7 @@ GalaxyPage::GalaxyPage(QWidget* parent) : QWidget(parent)
     m_discordPresence->setToolTip(tr("Shows \"In the launcher\" or \"Playing <profile>\" with its loader and Minecraft version, and your "
                                      "account's head, when the Discord app is running."));
     otherLayout->addWidget(m_discordPresence);
-    m_launcherUpdates = new QCheckBox(tr("Check GitHub for new versions of Galaxy Launcher at startup"), other);
+    m_launcherUpdates = new QCheckBox(tr("Check GitHub for new versions of %1 at startup").arg(GalaxyLook::launcherName()), other);
     otherLayout->addWidget(m_launcherUpdates);
     m_systemNotifications = new QCheckBox(tr("Show desktop notifications while the launcher is in the background"), other);
     m_systemNotifications->setToolTip(tr("When a game stops or crashes, a launch fails or downloads finish. Inside the launcher, "

@@ -507,7 +507,7 @@ void changeVersion(QWidget* parent, MinecraftInstance* instance, const Celestial
     auto metadata = model->at(row).metadata();
     if (!metadata) {
         CustomMessageBox::selectable(parent, tr("Change version"),
-                                     tr("\"%1\" was not installed from Modrinth, so there are no other versions to choose from.")
+                                     tr("\"%1\" was not installed from Modrinth or CurseForge, so there are no other versions to choose from.")
                                          .arg(body.name),
                                      QMessageBox::Information)
             ->show();

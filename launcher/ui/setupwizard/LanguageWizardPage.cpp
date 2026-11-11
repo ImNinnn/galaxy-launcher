@@ -6,6 +6,7 @@
 #include <BuildConfig.h>
 #include <QVBoxLayout>
 #include "ui/widgets/LanguageSelectionWidget.h"
+#include "ui/galaxy/GalaxyLook.h"
 
 LanguageWizardPage::LanguageWizardPage(QWidget* parent) : BaseWizardPage(parent)
 {
@@ -42,6 +43,6 @@ bool LanguageWizardPage::validatePage()
 void LanguageWizardPage::retranslate()
 {
     setTitle(tr("Language"));
-    setSubTitle(tr("Select the language to use in %1").arg(BuildConfig.LAUNCHER_DISPLAYNAME));
+    setSubTitle(tr("Select the language to use in %1").arg(GalaxyLook::launcherName()));
     mainWidget->retranslate();
 }

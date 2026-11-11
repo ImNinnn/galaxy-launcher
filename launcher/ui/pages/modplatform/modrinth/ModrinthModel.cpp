@@ -48,6 +48,7 @@
 #include <QMessageBox>
 #include <memory>
 #include <utility>
+#include "ui/galaxy/GalaxyLook.h"
 
 namespace {
 auto sortFromIndex(int index) -> QString
@@ -368,7 +369,7 @@ void ModpackListModel::searchRequestFailed(const QString& /*reason*/, int networ
                               //: %1 refers to the launcher itself
                               QString("%1 %2")
                                   .arg(m_parent->displayName())
-                                  .arg(tr("API version too old!\nPlease update %1!").arg(BuildConfig.LAUNCHER_DISPLAYNAME)));
+                                  .arg(tr("API version too old!\nPlease update %1!").arg(GalaxyLook::launcherName())));
     }
     m_jobPtr.reset();
 

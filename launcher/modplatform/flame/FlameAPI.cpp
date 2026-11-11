@@ -199,6 +199,16 @@ QString getModLoaderFilters(ModPlatform::ModLoaderTypes types)
 
 }  // namespace
 
+int FlameAPI::classIdFor(ModPlatform::ResourceType type)
+{
+    return getClassId(type);
+}
+
+QString FlameAPI::modLoaderFilter(ModPlatform::ModLoaderTypes types)
+{
+    return getModLoaderFilters(types);
+}
+
 bool FlameAPI::validateModLoaders(ModPlatform::ModLoaderTypes loaders)
 {
     return loaders.testAnyFlags(ModPlatform::NeoForge | ModPlatform::Forge | ModPlatform::Fabric | ModPlatform::Quilt);

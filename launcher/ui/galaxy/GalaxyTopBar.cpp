@@ -28,12 +28,17 @@
 
 #include "Application.h"
 #include "BuildConfig.h"
+#include "GalaxyLook.h"
 
 namespace {
 
 /** Window button glyphs, drawn so they look the same with every icon theme. */
 QIcon windowGlyph(const QString& kind)
 {
+    if (GalaxyLook::orbit()) {
+        // Orbit's title bar buttons (the mod's update window): pixel glyphs, muted until hovered.
+        return GalaxyLook::pixelIcon(kind == "minimize" ? "window-minimize" : kind == "close" ? "close" : kind);
+    }
     QPixmap pixmap(QSize(32, 32));
     pixmap.fill(Qt::transparent);
     QPainter p(&pixmap);
@@ -66,10 +71,26 @@ GalaxyTopBar::GalaxyTopBar(QWidget* parent) : QWidget(parent)
     layout->setSpacing(6);
 
     auto* logo = new QLabel(this);
-    logo->setPixmap(APPLICATION->logo().pixmap(QSize(26, 26)));
-    logo->setAccessibleName(BuildConfig.LAUNCHER_DISPLAYNAME);
-    m_brand = new QLabel(BuildConfig.LAUNCHER_DISPLAYNAME, this);
+    m_brand = new QLabel(this);
     m_brand->setObjectName("galaxyBrand");
+    // Galaxy's logo, or Orbit's red pixel dot; the name the user sees follows the look.
+    GalaxyLook::onChange(this, [this, logo] {
+        const bool orbit = GalaxyLook::orbit();
+        logo->setPixmap(orbit ? GalaxyLook::pixelIcon("orbit", GalaxyLook::Orbit::Red).pixmap(QSize(18, 18), devicePixelRatioF())
+                              : APPLICATION->logo().pixmap(QSize(26, 26)));
+        logo->setFixedSize(orbit ? QSize(18, 26) : QSize(26, 26));
+        logo->setAccessibleName(GalaxyLook::launcherName());
+        m_brand->setText(GalaxyLook::launcherName());
+        if (!m_area.isNull()) {
+            setLocation(m_area, m_profile, m_back->isVisibleTo(this));
+        }
+        if (m_maximize) {
+            for (auto* button : m_windowControls->findChildren<QToolButton*>()) {
+                button->setIcon(windowGlyph(button->property("glyph").toString()));
+            }
+            updateWindowState();
+        }
+    });
     layout->addWidget(logo);
     layout->addWidget(m_brand);
     layout->addSpacing(12);
@@ -78,6 +99,7 @@ GalaxyTopBar::GalaxyTopBar(QWidget* parent) : QWidget(parent)
     m_back->setObjectName("galaxyBackButton");
     m_back->setText(tr("Back"));
     m_back->setIcon(QIcon::fromTheme("arrow-left", QIcon::fromTheme("go-previous")));
+    GalaxyLook::bindIcon(m_back, "back");
     m_back->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     m_back->setToolTip(tr("Back to the galaxy (Esc)"));
     m_back->setAutoRaise(true);
@@ -110,13 +132,16 @@ GalaxyTopBar::GalaxyTopBar(QWidget* parent) : QWidget(parent)
 
 void GalaxyTopBar::setLocation(const QString& area, const QString& profile, bool canGoBack)
 {
+    m_area = area;
+    m_profile = profile;
     m_back->setVisible(canGoBack);
+    const QString muted = GalaxyLook::orbit() ? QStringLiteral("#a3a3ad") : QStringLiteral("#b8b2d9");
     if (profile.isEmpty()) {
-        m_location->setText(QStringLiteral("<span style=\"color:#b8b2d9\">%1</span>").arg(area.toHtmlEscaped()));
+        m_location->setText(QStringLiteral("<span style=\"color:%2\">%1</span>").arg(area.toHtmlEscaped(), muted));
         m_location->setAccessibleName(area);
     } else {
-        m_location->setText(QStringLiteral("<span style=\"color:#b8b2d9\">%1 &rsaquo;</span> <b>%2</b>")
-                                .arg(area.toHtmlEscaped(), profile.toHtmlEscaped()));
+        m_location->setText(QStringLiteral("<span style=\"color:%3\">%1 &rsaquo;</span> <b>%2</b>")
+                                .arg(area.toHtmlEscaped(), profile.toHtmlEscaped(), muted));
         m_location->setAccessibleName(QStringLiteral("%1, %2").arg(area, profile));
     }
     m_location->setToolTip(profile);
@@ -173,6 +198,7 @@ void GalaxyTopBar::setWindowControlsVisible(bool visible)
         auto addButton = [this, controls](const QString& kind, const QString& name, const QString& objectName) {
             auto* button = new QToolButton(m_windowControls);
             button->setObjectName(objectName);
+            button->setProperty("glyph", kind);
             button->setIcon(windowGlyph(kind));
             button->setIconSize(QSize(16, 16));
             button->setToolTip(name);
@@ -200,6 +226,7 @@ void GalaxyTopBar::updateWindowState()
         return;
     }
     const bool maximized = window()->isMaximized();
+    m_maximize->setProperty("glyph", maximized ? "restore" : "maximize");
     m_maximize->setIcon(windowGlyph(maximized ? "restore" : "maximize"));
     m_maximize->setToolTip(maximized ? tr("Restore") : tr("Maximize"));
     m_maximize->setAccessibleName(m_maximize->toolTip());

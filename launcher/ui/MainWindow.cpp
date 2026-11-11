@@ -126,6 +126,7 @@
 #include "ui/galaxy/DiscoverWindow.h"
 #include "ui/widgets/PageContainer.h"
 #include "ui/galaxy/GalaxyDevTour.h"
+#include "ui/galaxy/GalaxyLook.h"
 #include "ui/galaxy/GalaxySearchBar.h"
 #include "ui/galaxy/GalaxySettings.h"
 #include "ui/galaxy/GalaxySidebar.h"
@@ -182,7 +183,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainWi
     setWindowIcon(APPLICATION->logo());
     setWindowTitle(APPLICATION->applicationDisplayName());
 #ifndef QT_NO_ACCESSIBILITY
-    setAccessibleName(BuildConfig.LAUNCHER_DISPLAYNAME);
+    setAccessibleName(GalaxyLook::launcherName());
 #endif
 
     // instance toolbar stuff
@@ -479,16 +480,25 @@ void MainWindow::retranslateUi()
 
     changeIconButton->setToolTip(ui->actionChangeInstIcon->toolTip());
 
-    // replace the %1 with the launcher display name in some actions
-    if (helpMenuButton->toolTip().contains("%1"))
-        helpMenuButton->setToolTip(helpMenuButton->toolTip().arg(BuildConfig.LAUNCHER_DISPLAYNAME));
-
+    // replace the %1 with the launcher display name in some actions (Galaxy: the name shown follows the look)
+    helpMenuButton->setProperty("nameTemplate", helpMenuButton->toolTip());
     for (auto action : ui->helpMenu->actions()) {
-        if (action->text().contains("%1"))
-            action->setText(action->text().arg(BuildConfig.LAUNCHER_DISPLAYNAME));
-        if (action->toolTip().contains("%1"))
-            action->setToolTip(action->toolTip().arg(BuildConfig.LAUNCHER_DISPLAYNAME));
+        action->setProperty("textTemplate", action->text());
+        action->setProperty("tipTemplate", action->toolTip());
     }
+    GalaxyLook::onChange(this, [this] {
+        const auto name = GalaxyLook::launcherName();
+        if (const auto tip = helpMenuButton->property("nameTemplate").toString(); tip.contains("%1"))
+            helpMenuButton->setToolTip(tip.arg(name));
+        for (auto action : ui->helpMenu->actions()) {
+            if (const auto text = action->property("textTemplate").toString(); text.contains("%1"))
+                action->setText(text.arg(name));
+            if (const auto tip = action->property("tipTemplate").toString(); tip.contains("%1"))
+                action->setToolTip(tip.arg(name));
+        }
+        setWindowIcon(APPLICATION->logo());
+        setAccessibleName(name);
+    });
 }
 
 MainWindow::~MainWindow() {}
@@ -568,7 +578,7 @@ void MainWindow::showInstanceContextMenu(const QPoint& pos)
     } else {
         auto group = view->groupNameAt(pos);
 
-        QAction* actionVoid = new QAction(group.isNull() ? BuildConfig.LAUNCHER_DISPLAYNAME : group, this);
+        QAction* actionVoid = new QAction(group.isNull() ? GalaxyLook::launcherName() : group, this);
         actionVoid->setEnabled(false);
 
         QAction* actionCreateInstance = new QAction(tr("&Create instance"), this);
@@ -1545,12 +1555,12 @@ void MainWindow::on_actionAddToPATH_triggered()
                 .arg(binaryPath, targetPath);
     auto outcome = QProcess::execute("/usr/bin/osascript", args);
     if (!outcome) {
-        QMessageBox::information(this, tr("Successfully added %1 to PATH").arg(BuildConfig.LAUNCHER_DISPLAYNAME),
+        QMessageBox::information(this, tr("Successfully added %1 to PATH").arg(GalaxyLook::launcherName()),
                                  tr("%1 was successfully added to your PATH. You can now start it by running `%2`.")
-                                     .arg(BuildConfig.LAUNCHER_DISPLAYNAME, BuildConfig.LAUNCHER_APP_BINARY_NAME));
+                                     .arg(GalaxyLook::launcherName(), BuildConfig.LAUNCHER_APP_BINARY_NAME));
     } else {
-        QMessageBox::critical(this, tr("Failed to add %1 to PATH").arg(BuildConfig.LAUNCHER_DISPLAYNAME),
-                              tr("An error occurred while trying to add %1 to PATH").arg(BuildConfig.LAUNCHER_DISPLAYNAME));
+        QMessageBox::critical(this, tr("Failed to add %1 to PATH").arg(GalaxyLook::launcherName()),
+                              tr("An error occurred while trying to add %1 to PATH").arg(GalaxyLook::launcherName()));
     }
 }
 #endif
@@ -1867,7 +1877,7 @@ void MainWindow::checkInstancePathForProblems()
         warning.setInformativeText(tr("You have now two options: <br/>"
                                       " - change the instance folder in the settings <br/>"
                                       " - move this installation of %1 to a different folder")
-                                       .arg(BuildConfig.LAUNCHER_DISPLAYNAME));
+                                       .arg(GalaxyLook::launcherName()));
         warning.setDefaultButton(QMessageBox::Ok);
         warning.exec();
     }
@@ -1956,7 +1966,7 @@ void MainWindow::setupGalaxyUi()
     ui->mainToolBar->hide();
     ui->instanceToolBar->hide();
     ui->newsToolBar->hide();
-    // Galaxy Launcher uses Modrinth only.
+    // Galaxy Launcher does not export CurseForge modpacks (Modrinth packs only).
     ui->actionExportInstanceFlamePack->setVisible(false);
 
     // Top bar
@@ -1967,7 +1977,10 @@ void MainWindow::setupGalaxyUi()
     topToolBar->setObjectName("galaxyTopToolBar");
     topToolBar->setMovable(false);
     topToolBar->setFloatable(false);
-    topToolBar->setStyleSheet("QToolBar#galaxyTopToolBar { border: 0; padding: 0; spacing: 0; background: #120D2B; }");
+    GalaxyLook::onChange(topToolBar, [topToolBar] {
+        topToolBar->setStyleSheet(QStringLiteral("QToolBar#galaxyTopToolBar { border: 0; padding: 0; spacing: 0; background: %1; }")
+                                      .arg(GalaxyLook::orbit() ? "#1C1C20" : "#120D2B"));
+    });
     topToolBar->toggleViewAction()->setVisible(false);
     topToolBar->addWidget(m_topBar);
     addToolBar(Qt::TopToolBarArea, topToolBar);
@@ -2019,7 +2032,7 @@ void MainWindow::setupGalaxyUi()
         m_topBar->addGlobalAction(ui->actionCheckUpdate);
     }
     // Newer Galaxy Launcher release on GitHub: shown right of the help button once found (checked shortly after start).
-    m_launcherUpdateAction = new QAction(UpdatesDialog::icon(), tr("Update Galaxy Launcher"), this);
+    m_launcherUpdateAction = new QAction(UpdatesDialog::icon(), tr("Update %1").arg(GalaxyLook::launcherName()), this);
     m_launcherUpdateButton = m_topBar->addGlobalAction(m_launcherUpdateAction);
     m_launcherUpdateButton->setObjectName("galaxyLauncherUpdateButton");
     m_launcherUpdateButton->hide();
@@ -2029,9 +2042,9 @@ void MainWindow::setupGalaxyUi()
         m_launcherUpdateNotes = release.notes;
         m_launcherUpdatePage = release.page;
         m_launcherUpdateInstaller = release.installer;
-        m_launcherUpdateAction->setToolTip(tr("Galaxy Launcher %1 is available: click to update").arg(release.version));
+        m_launcherUpdateAction->setToolTip(tr("%1 %2 is available: click to update").arg(GalaxyLook::launcherName(), release.version));
         m_launcherUpdateButton->show();
-        Notifications::instance()->post(Notifications::Kind::Info, tr("Galaxy Launcher %1 is available").arg(release.version),
+        Notifications::instance()->post(Notifications::Kind::Info, tr("%1 %2 is available").arg(GalaxyLook::launcherName(), release.version),
                                         tr("You can update now, or later with the red arrow in the top bar."),
                                         { { tr("See what's new"), [this] { m_launcherUpdateAction->trigger(); } } });
     });
@@ -2132,6 +2145,32 @@ void MainWindow::setupGalaxyUi()
         }
     });
     connect(UpdateChecker::instance(), &UpdateChecker::updatesChanged, this, &MainWindow::refreshUpdatesButton);
+
+    // The Orbit look: Orbit's pixel icons on the main window's actions, its chrome, and "Orbit Launcher" in titles.
+    const std::pair<QAction*, const char*> pixelIcons[] = {
+        { m_actionProfileMenu, "menu" },            { ui->actionEditInstance, "settings" },
+        { m_actionSunColor, "brush" },              { ui->actionAddInstance, "plus" },
+        { ui->actionFoldersButton, "folder" },      { ui->actionHelpButton, "help" },
+        { ui->actionCheckUpdate, "update" },        { m_actionDiscover, "download" },
+        { ui->actionRenameInstance, "edit" },       { ui->actionChangeInstIcon, "image" },
+        { ui->actionChangeInstGroup, "tag" },       { ui->actionViewSelectedInstFolder, "folder" },
+        { ui->actionCopyInstance, "copy" },         { ui->actionExportInstance, "send" },
+        { ui->actionCreateInstanceShortcut, "popout" }, { ui->actionDeleteInstance, "trash" },
+    };
+    for (const auto& [action, icon] : pixelIcons) {
+        GalaxyLook::bindIcon(action, icon);
+    }
+    GalaxyLook::bindIcon(m_launcherUpdateAction, "update", GalaxyLook::Orbit::Red);
+    GalaxyLook::bindIcon(ui->actionLaunchInstance, "play", Qt::white);  // on Orbit's red button
+    GalaxyLook::bindIcon(ui->actionKillInstance, "stop", QColor(0xFF, 0xB0, 0xB0));
+    GalaxyLook::onChange(this, [this] {
+        const auto chrome = GalaxyTheme::chromeStyleSheet();
+        m_topBar->setStyleSheet(chrome);
+        m_sidebar->setStyleSheet(chrome);
+        m_searchBar->setStyleSheet(chrome);
+        m_galaxy->findChild<QWidget*>("galaxyEmptyState")->setStyleSheet(chrome);
+        updateGalaxyNavigation();
+    });
     // A notification when a profile has new updates (not again for the same ones).
     connect(UpdateChecker::instance(), &UpdateChecker::updatesChanged, this, [this](const QString& id) {
         const auto count = static_cast<int>(UpdateChecker::instance()->updatesFor(id).size());
@@ -2310,7 +2349,7 @@ void MainWindow::populateProfileMenu(QMenu* menu)
     auto* header = menu->addAction(instance->name());
     header->setEnabled(false);
     menu->addSeparator();
-    auto* launch = menu->addAction(QIcon::fromTheme("launch"), instance->isRunning() ? tr("Show game console") : tr("Launch"));
+    auto* launch = menu->addAction(GalaxyLook::icon(QIcon::fromTheme("launch"), "play"), instance->isRunning() ? tr("Show game console") : tr("Launch"));
     connect(launch, &QAction::triggered, this, [this, instance] { launchInstance(instance); });
     auto* launchOptions = menu->addMenu(tr("Launch options"));
     instance->populateLaunchMenu(launchOptions);
@@ -2324,7 +2363,7 @@ void MainWindow::populateProfileMenu(QMenu* menu)
     menu->addAction(ui->actionChangeInstIcon);
     if (const auto key = instance->iconKey(); !key.isEmpty() && key != QStringLiteral("default")) {
         // Galaxy: back to no icon ("default"); the sidebar then shows the name without one.
-        menu->addAction(QIcon::fromTheme("delete"), tr("Remove Icon"), this, [id = instance->id()] {
+        menu->addAction(GalaxyLook::icon(QIcon::fromTheme("delete"), "trash"), tr("Remove Icon"), this, [id = instance->id()] {
             if (auto* target = APPLICATION->instances()->getInstanceById(id)) {
                 target->setIconKey(QStringLiteral("default"));
             }

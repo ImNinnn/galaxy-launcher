@@ -36,8 +36,9 @@ Galaxy Launcher signs in with its own Microsoft Entra application; its client ID
 `Launcher_MSA_CLIENT_ID` in `CMakeLists.txt`. Sign-in opens the browser, and Microsoft sends it back to a page served
 by the launcher on `http://localhost:<port>/` (listening on 127.0.0.1 only).
 
-Galaxy Launcher uses **Modrinth only**: CurseForge is disabled everywhere (no pages, searches, update checks or API
-calls), even if a CurseForge key were configured.
+No CurseForge API key is built in: users enter one in Settings › APIs (under Modrinth), and CurseForge then appears
+in Discover without a restart. A build can supply one with `-DLauncher_CURSEFORGE_API_KEY=...` in the manifest's
+`config-opts`.
 
 A fork should register its own application and provide its client ID, either at build time (the `-DLauncher_...`
 lines in the manifest's `config-opts`):

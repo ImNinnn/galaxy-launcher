@@ -9,6 +9,7 @@
 
 #include <BuildConfig.h>
 #include <QAbstractButton>
+#include "ui/galaxy/GalaxyLook.h"
 
 SetupWizard::SetupWizard(QWidget* parent) : QWizard(parent)
 {
@@ -30,7 +31,7 @@ void SetupWizard::retranslate()
     setButtonText(QWizard::BackButton, tr("< &Back"));
     setButtonText(QWizard::FinishButton, tr("&Finish"));
     setButtonText(QWizard::CustomButton1, tr("&Refresh"));
-    setWindowTitle(tr("%1 Quick Setup").arg(BuildConfig.LAUNCHER_DISPLAYNAME));
+    setWindowTitle(tr("%1 Quick Setup").arg(GalaxyLook::launcherName()));
 }
 
 BaseWizardPage* SetupWizard::getBasePage(int id)

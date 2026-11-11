@@ -31,6 +31,8 @@
 #include "ui/themes/CustomTheme.h"
 #include "ui/themes/DarkTheme.h"
 #include "ui/themes/GalaxyTheme.h"
+#include "ui/themes/OrbitTheme.h"
+#include "ui/galaxy/GalaxyLook.h"
 #include "ui/themes/SystemTheme.h"
 
 #include "Application.h"
@@ -145,6 +147,7 @@ void ThemeManager::initializeWidgets()
     themeDebugLog() << "<> Initializing Widget Themes";
     themeDebugLog() << "Loading Built-in Theme:" << addTheme(std::make_unique<SystemTheme>(m_defaultStyle, m_defaultPalette, true));
     themeDebugLog() << "Loading Built-in Theme:" << addTheme(std::make_unique<GalaxyTheme>());
+    themeDebugLog() << "Loading Built-in Theme:" << addTheme(std::make_unique<OrbitTheme>());
     auto darkThemeId = addTheme(std::make_unique<DarkTheme>());
     themeDebugLog() << "Loading Built-in Theme:" << darkThemeId;
     themeDebugLog() << "Loading Built-in Theme:" << addTheme(std::make_unique<BrightTheme>());
@@ -274,6 +277,8 @@ void ThemeManager::setApplicationTheme(const QString& name, bool initial)
         setTitlebarColorOfAllWindowsOnMac(qApp->palette().window().color());
 
         m_logColors = theme->logColorScheme();
+        // The main window's look (Galaxy or Orbit's pixel art) follows the theme; its widgets restyle themselves.
+        GalaxyLook::setTheme(theme->id());
     } else {
         themeWarningLog() << "Tried to set invalid theme:" << name;
     }

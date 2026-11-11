@@ -36,7 +36,7 @@ class ResourceDownloadDialog;
 }
 
 /**
- * "Discover": a window to search Modrinth and install mods, resource packs, shader packs and data
+ * "Discover": a window to search Modrinth and CurseForge (and Orbit's own server, for the Orbit mod) and install mods, resource packs, shader packs and data
  * packs into a profile.
  *
  * Each category hosts Prism's own download browser (provider list, search, sorting, filters such as Minecraft

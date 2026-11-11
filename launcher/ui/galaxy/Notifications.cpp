@@ -36,6 +36,7 @@
 #include "GalaxySettings.h"
 #include "settings/SettingsObject.h"
 #include "tasks/Task.h"
+#include "GalaxyLook.h"
 
 namespace {
 constexpr int MaxShown = 6;
@@ -243,7 +244,7 @@ void Notifications::showOnDesktop(const Notification& notification)
         auto message = QDBusMessage::createMethodCall("org.freedesktop.Notifications", "/org/freedesktop/Notifications",
                                                       "org.freedesktop.Notifications", "Notify");
         const QVariantMap hints{ { "urgency", QVariant::fromValue<uchar>(urgent ? 2 : 1) } };
-        message << BuildConfig.LAUNCHER_DISPLAYNAME << 0U << BuildConfig.LAUNCHER_APPID << notification.title << notification.text
+        message << GalaxyLook::launcherName() << 0U << BuildConfig.LAUNCHER_APPID << notification.title << notification.text
                 << QStringList() << hints << -1;
         bus.send(message);  // no reply needed
     }
@@ -255,7 +256,7 @@ void Notifications::showOnDesktop(const Notification& notification)
     static QPointer<QSystemTrayIcon> tray;
     if (!tray) {
         tray = new QSystemTrayIcon(QApplication::windowIcon(), qApp);
-        tray->setToolTip(BuildConfig.LAUNCHER_DISPLAYNAME);
+        tray->setToolTip(GalaxyLook::launcherName());
     }
     tray->show();
     tray->showMessage(notification.title, notification.text, urgent ? QSystemTrayIcon::Critical : QSystemTrayIcon::Information, 8000);

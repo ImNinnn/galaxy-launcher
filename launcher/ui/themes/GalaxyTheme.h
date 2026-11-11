@@ -35,7 +35,8 @@ class GalaxyTheme : public FusionTheme {
 
     /**
      * Style for the galaxy chrome (top bar, sidebar, search bar, empty state). Applied to those widgets directly so
-     * they stay readable on top of the always-dark galaxy, whichever application theme is selected.
+     * they stay readable on top of the always-dark galaxy, whichever application theme is selected. With the Orbit
+     * look this is OrbitTheme::chromeStyleSheet(); widgets apply it again when the look changes.
      */
     static QString chromeStyleSheet();
 };

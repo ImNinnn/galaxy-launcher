@@ -150,10 +150,9 @@ void APIPage::loadSettings()
     ui->legacyFMLLibsURL->setText(fmlLibsURL);
     QString flameKey = s->get("FlameKeyOverride").toString();
     ui->flameKey->setText(flameKey);
-    // Galaxy Launcher uses Modrinth only: no CurseForge key, note or blocked-mod fallback.
-    ui->flameKey->hide();
-    ui->flameKeyLabel->hide();
-    ui->label_10->hide();
+    // Galaxy Launcher: CurseForge needs an API key (none is built in); Discover shows CurseForge once one is set.
+    ui->flameKey->setPlaceholderText(tr("Paste your CurseForge API key"));
+    ui->label_10->setText(tr("CurseForge appears in Discover once a key is set. Get one at console.curseforge.com."));
     ui->FallbackMRBlockedMods->hide();
     QString modrinthToken = s->get("ModrinthToken").toString();
     ui->modrinthToken->setText(modrinthToken);

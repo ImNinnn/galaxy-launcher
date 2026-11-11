@@ -41,6 +41,7 @@
 using namespace Json;
 #include <BuildConfig.h>
 #include "ParseUtils.h"
+#include "ui/galaxy/GalaxyLook.h"
 
 static const int CURRENT_MINIMUM_LAUNCHER_VERSION = 18;
 
@@ -171,7 +172,7 @@ Result<> MojangVersionFormat::readVersionProperties(const QJsonObject& in, Versi
                                                                   "supported by %3 (%2). It might not work properly!")
                                                           .arg(out->minimumLauncherVersion)
                                                           .arg(CURRENT_MINIMUM_LAUNCHER_VERSION)
-                                                          .arg(BuildConfig.LAUNCHER_DISPLAYNAME));
+                                                          .arg(GalaxyLook::launcherName()));
         }
     }
 

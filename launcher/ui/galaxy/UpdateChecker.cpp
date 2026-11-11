@@ -34,6 +34,7 @@
 #include "minecraft/mod/ResourcePackFolderModel.h"
 #include "minecraft/mod/ShaderPackFolderModel.h"
 #include "ResourceDownloadTask.h"
+#include "modplatform/flame/FlameCheckUpdate.h"
 #include "modplatform/modrinth/ModrinthCheckUpdate.h"
 #include "settings/SettingsObject.h"
 #include "tasks/SequentialTask.h"
@@ -46,7 +47,7 @@ struct Job {
     QList<Resource::Ptr> keepAlive;  // the model may replace its resources meanwhile; these stay valid
     QList<Resource*> resources;
     std::vector<Version> versions;
-    shared_qobject_ptr<ModrinthCheckUpdate> task;
+    shared_qobject_ptr<CheckUpdateTask> task;
 };
 
 }  // namespace
@@ -145,31 +146,42 @@ void UpdateChecker::check(MinecraftInstance* instance, bool force)
 
     auto jobs = std::make_shared<QList<std::shared_ptr<Job>>>();
     auto sequence = makeShared<SequentialTask>(tr("Checking for updates"));
+    // Modrinth, and CurseForge when it is available: each file is checked where it was installed from.
+    QList<ModPlatform::ResourceProvider> providers{ ModPlatform::ResourceProvider::MODRINTH };
+    if (APPLICATION->capabilities() & Application::SupportsFlame) {
+        providers.append(ModPlatform::ResourceProvider::FLAME);
+    }
     for (const auto& source : sources) {
         if (!source.model) {
             continue;
         }
-        auto job = std::make_shared<Job>();
-        job->model = source.model;
-        for (auto* resource : source.model->allResources()) {
-            // Only Modrinth: Galaxy Launcher does not use CurseForge. Files with locked updates (modpack content) are
-            // checked too, so their updates show; updating one asks to unlock it first.
-            if (!resource || !resource->metadata() || resource->type() == ResourceType::FOLDER ||
-                resource->metadata()->provider != ModPlatform::ResourceProvider::MODRINTH) {
+        for (const auto provider : providers) {
+            auto job = std::make_shared<Job>();
+            job->model = source.model;
+            for (auto* resource : source.model->allResources()) {
+                // Files with locked updates (modpack content) are checked too, so their updates show; updating one
+                // asks to unlock it first.
+                if (!resource || !resource->metadata() || resource->type() == ResourceType::FOLDER ||
+                    resource->metadata()->provider != provider) {
+                    continue;
+                }
+                if (auto ptr = source.model->find(resource->internalId())) {
+                    job->keepAlive.append(ptr);
+                    job->resources.append(ptr.get());
+                }
+            }
+            if (job->resources.isEmpty()) {
                 continue;
             }
-            if (auto ptr = source.model->find(resource->internalId())) {
-                job->keepAlive.append(ptr);
-                job->resources.append(ptr.get());
+            job->versions = { Version(minecraft->getVersion()) };
+            if (provider == ModPlatform::ResourceProvider::FLAME) {
+                job->task.reset(new FlameCheckUpdate(job->resources, job->versions, source.loaders, source.model));
+            } else {
+                job->task.reset(new ModrinthCheckUpdate(job->resources, job->versions, source.loaders, source.model));
             }
+            sequence->addTask(job->task);
+            jobs->append(job);
         }
-            if (job->resources.isEmpty()) {
-            continue;
-        }
-        job->versions = { Version(minecraft->getVersion()) };
-        job->task.reset(new ModrinthCheckUpdate(job->resources, job->versions, source.loaders, source.model));
-        sequence->addTask(job->task);
-        jobs->append(job);
     }
     if (jobs->isEmpty()) {
         m_checked[id] = QDateTime::currentDateTimeUtc();

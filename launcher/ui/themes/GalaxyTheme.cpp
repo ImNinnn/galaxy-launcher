@@ -19,6 +19,9 @@
 
 #include <QObject>
 
+#include "OrbitTheme.h"
+#include "ui/galaxy/GalaxyLook.h"
+
 QString GalaxyTheme::id()
 {
     return "galaxy";
@@ -115,6 +118,9 @@ QStatusBar QLabel { color: #A39DC8; }
 
 QString GalaxyTheme::chromeStyleSheet()
 {
+    if (GalaxyLook::orbit()) {
+        return OrbitTheme::chromeStyleSheet();
+    }
     return QStringLiteral(R"(
 #galaxyTopBar { background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #120D2B, stop:1 #1A1240); border-bottom: 1px solid #2C2358; }
 #galaxyBrand { color: #F3EEFF; font-weight: 600; font-size: 11pt; }
@@ -135,10 +141,10 @@ QPushButton#galaxyPrimaryButton { background-color: #7C4DFF; color: white; borde
 QPushButton#galaxyPrimaryButton:hover { background-color: #8F66FF; }
 QPushButton#galaxyPrimaryButton:pressed { background-color: #6A3DF0; }
 QPushButton#galaxyPrimaryButton:focus { border: 2px solid #E9DDFF; }
-QPushButton { background-color: #221A44; color: #ECE9FF; border: 1px solid #3A2E6B; border-radius: 15px; padding: 6px 16px; }
+QPushButton { background-color: #221A44; color: #ECE9FF; border: 1px solid #3A2E6B; border-radius: 15px; padding: 6px 16px; qproperty-iconSize: 16px 16px; }
 QPushButton:hover { background-color: #2C2258; }
 QPushButton:focus { border: 1px solid #A78BFA; }
-QToolButton { color: #ECE9FF; border: 1px solid transparent; border-radius: 8px; padding: 5px 8px; background: transparent; }
+QToolButton { color: #ECE9FF; border: 1px solid transparent; border-radius: 8px; padding: 5px 8px; background: transparent; qproperty-iconSize: 16px 16px; }
 QToolButton:hover { background-color: rgba(167, 139, 250, 40); }
 QToolButton:pressed, QToolButton:checked { background-color: rgba(167, 139, 250, 72); }
 QToolButton:focus { border: 1px solid #A78BFA; }
@@ -164,6 +170,7 @@ QToolButton#galaxyCloseButton:pressed { background-color: #A1251A; }
 QToolButton#galaxyMoreButton::menu-indicator { image: none; width: 0; }
 QToolButton#galaxyViewToggle { background-color: #1B1540; border: 1px solid #3A2E6B; border-radius: 15px; padding: 5px 12px; }
 QToolButton#galaxyViewToggle:hover { background-color: #2C2258; }
+#galaxyAccountButton { qproperty-iconSize: 22px 22px; }
 #galaxyAccountButton, #galaxySettingsButton { background-color: rgba(255, 255, 255, 10); border-radius: 10px; padding: 7px 10px; text-align: left; }
 #galaxyAccountButton:hover, #galaxySettingsButton:hover { background-color: rgba(167, 139, 250, 40); }
 #galaxyEmptyState { background-color: rgba(16, 12, 37, 225); border: 1px solid #3A2E6B; border-radius: 18px; }

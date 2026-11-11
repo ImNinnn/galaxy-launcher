@@ -26,6 +26,7 @@
 #include "Markdown.h"
 #include "StringUtils.h"
 #include "ui_UpdateAvailableDialog.h"
+#include "ui/galaxy/GalaxyLook.h"
 
 UpdateAvailableDialog::UpdateAvailableDialog(const QString& currentVersion,
                                              const QString& availableVersion,
@@ -35,7 +36,7 @@ UpdateAvailableDialog::UpdateAvailableDialog(const QString& currentVersion,
 {
     ui->setupUi(this);
 
-    QString launcherName = BuildConfig.LAUNCHER_DISPLAYNAME;
+    QString launcherName = GalaxyLook::launcherName();
 
     ui->headerLabel->setText(tr("A new version of %1 is available!").arg(launcherName));
     ui->versionAvailableLabel->setText(

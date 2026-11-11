@@ -80,6 +80,7 @@ AboutDialog::AboutDialog(QWidget* parent) : QDialog(parent), ui(new Ui::AboutDia
 {
     ui->setupUi(this);
 
+    // Galaxy Launcher's own page: its name and logo whatever the theme (Orbit only changes the look).
     QString launcherName = BuildConfig.LAUNCHER_DISPLAYNAME;
 
     setWindowTitle(tr("About %1").arg(launcherName));
@@ -92,11 +93,13 @@ AboutDialog::AboutDialog(QWidget* parent) : QDialog(parent), ui(new Ui::AboutDia
 
     ui->urlLabel->setOpenExternalLinks(true);
 
-    ui->icon->setPixmap(APPLICATION->logo().pixmap(64));
+    ui->icon->setPixmap(QIcon(":/" + BuildConfig.LAUNCHER_SVGFILENAME).pixmap(64));
     ui->title->setText(launcherName);
 
     // Galaxy Launcher: its own version, and the Prism Launcher version it is built on.
-    ui->versionLabel->setText(tr("%1 (built on Prism Launcher %2)").arg(BuildConfig.GALAXY_VERSION, BuildConfig.printableVersionString()));
+    // Prism Launcher's development branch of 13 October 2026 (after 11.0; its version number there, 12.0.0, is not a
+    // release).
+    ui->versionLabel->setText(tr("%1 (built on Prism Launcher's development version of October 13, 2026)").arg(BuildConfig.GALAXY_VERSION));
 
     if (!BuildConfig.BUILD_PLATFORM.isEmpty())
         ui->platformLabel->setText(tr("Platform") + ": " + BuildConfig.BUILD_PLATFORM);
@@ -118,8 +121,10 @@ AboutDialog::AboutDialog(QWidget* parent) : QDialog(parent), ui(new Ui::AboutDia
     else
         ui->channelLabel->setVisible(false);
 
-    QString urlText("<html><head/><body><p><a href=\"%1\">%1</a></p></body></html>");
-    ui->urlLabel->setText(urlText.arg(BuildConfig.LAUNCHER_GIT));
+    // Galaxy Launcher's repository, and Prism Launcher's.
+    const QString galaxyGit = QStringLiteral("https://github.com/%1").arg(BuildConfig.GALAXY_RELEASES_REPO);
+    ui->urlLabel->setText(QStringLiteral("<html><head/><body><p><a href=\"%1\">%1</a><br/>%3 <a href=\"%2\">%2</a></p></body></html>")
+                              .arg(galaxyGit, BuildConfig.LAUNCHER_GIT, tr("Built on")));
 
     ui->copyLabel->setText(BuildConfig.LAUNCHER_COPYRIGHT);
 

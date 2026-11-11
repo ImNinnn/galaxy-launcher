@@ -117,8 +117,11 @@ void GetModDependenciesTask::prepare()
 {
     for (const auto& sel : m_selected) {
         if (checkDependencies(sel, m_version, m_loaderType)) {
-            for (const auto& dep : getDependenciesForVersion(sel->version, sel->pack->provider)) {
-                addTask(prepareDependencyTask(dep, sel->pack->provider, 20));
+            // Galaxy Launcher: Orbit's dependencies (Fabric API) are Modrinth projects.
+            const auto provider =
+                sel->pack->provider == ModPlatform::ResourceProvider::ORBIT ? ModPlatform::ResourceProvider::MODRINTH : sel->pack->provider;
+            for (const auto& dep : getDependenciesForVersion(sel->version, provider)) {
+                addTask(prepareDependencyTask(dep, provider, 20));
             }
         }
     }
@@ -291,7 +294,10 @@ auto GetModDependenciesTask::getExtraInfo() -> QHash<QString, PackDependencyExtr
         auto reqNames = QStringList();
         auto reqIds = QStringList();
         for (auto& smod : fullList) {
-            if (provider != smod->pack->provider) {
+            // Galaxy Launcher: Orbit's dependencies are Modrinth projects.
+            const auto requirer = smod->pack->provider == ModPlatform::ResourceProvider::ORBIT ? ModPlatform::ResourceProvider::MODRINTH
+                                                                                                : smod->pack->provider;
+            if (provider != requirer) {
                 continue;
             }
             auto deps = smod->version.dependencies;

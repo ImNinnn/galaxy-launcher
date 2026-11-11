@@ -30,6 +30,7 @@
 #include <QVBoxLayout>
 
 #include "Application.h"
+#include "GalaxyLook.h"
 #include "GalaxySettings.h"
 #include "Notifications.h"
 #include "settings/SettingsObject.h"
@@ -40,6 +41,22 @@ namespace {
 
 QColor kindColor(Kind kind)
 {
+    if (GalaxyLook::orbit()) {
+        // Orbit's social popups: a red bar for messages, green for good news.
+        namespace O = GalaxyLook::Orbit;
+        switch (kind) {
+            case Kind::Success:
+                return O::Green;
+            case Kind::Warning:
+                return O::Yellow;
+            case Kind::Error:
+                return O::ErrorText;
+            case Kind::Info:
+            case Kind::Progress:
+                break;
+        }
+        return O::Red;
+    }
     switch (kind) {
         case Kind::Success:
             return { 134, 239, 172 };
@@ -52,6 +69,63 @@ QColor kindColor(Kind kind)
             break;
     }
     return { 167, 139, 250 };
+}
+
+/** Orbit's pixel icon for a kind of notification. */
+QString kindIcon(Kind kind)
+{
+    switch (kind) {
+        case Kind::Success:
+            return QStringLiteral("check");
+        case Kind::Warning:
+            return QStringLiteral("warning");
+        case Kind::Error:
+            return QStringLiteral("close");
+        case Kind::Progress:
+            return QStringLiteral("download");
+        case Kind::Info:
+            break;
+    }
+    return QStringLiteral("message");
+}
+
+QString galaxyStyle()
+{
+    return QStringLiteral(
+        "QFrame#galaxyNotification { background: #1A1438; border: 1px solid #3A2F70; border-radius: 10px; }"
+        "QLabel#galaxyNotificationTitle { color: #ECE9FF; font-weight: bold; }"
+        "QLabel#galaxyNotificationText { color: #BDB6E0; }"
+        "QProgressBar#galaxyNotificationProgress { background: #2C2358; border: 0; border-radius: 2px; }"
+        "QProgressBar#galaxyNotificationProgress::chunk { background: #A78BFA; border-radius: 2px; }"
+        "QPushButton#galaxyNotificationAction { color: #C4B5FD; background: #2A2152; border: 1px solid #4C3D96; border-radius: 6px;"
+        " padding: 3px 10px; }"
+        "QPushButton#galaxyNotificationAction:hover { background: #352A68; }"
+        // The close button has the soft red background of the top bar's stop button.
+        "QToolButton#galaxyNotificationClose { color: #F3D2D2; background: rgba(248, 113, 113, 34); border: 1px solid rgba(248, 113, 113, 85);"
+        " border-radius: 6px; padding: 1px 6px; margin-top: 8px; }"
+        "QToolButton#galaxyNotificationClose:hover { background: rgba(248, 113, 113, 70); border-color: rgba(252, 165, 165, 150); }"
+        "QToolButton#galaxyNotificationClose:pressed { background: rgba(220, 38, 38, 110); }");
+}
+
+/** Orbit's social popup: a square panel with a bevel, white title, grey text, bevelled buttons. */
+QString orbitStyle()
+{
+    return QStringLiteral(
+        "QFrame#galaxyNotification { background: #1C1C20; border: 1px solid #2E2E35; border-top-color: #3A3A42; border-bottom-color: #0A0A0C;"
+        " border-radius: 0; }"
+        "QLabel#galaxyNotificationTitle { color: #ECECEF; font-weight: bold; }"
+        "QLabel#galaxyNotificationText { color: #C9C9D2; }"
+        "QProgressBar#galaxyNotificationProgress { background: #232328; border: 0; border-radius: 0; }"
+        "QProgressBar#galaxyNotificationProgress::chunk { background: #FF2626; border-radius: 0; }"
+        "QPushButton#galaxyNotificationAction { color: #ECECEF; background: #34343C; border-style: solid; border-width: 1px 1px 2px 1px;"
+        " border-color: #464651 #0A0A0C #202025 #3C3C45; border-radius: 0; padding: 3px 10px; }"
+        "QPushButton#galaxyNotificationAction:hover { background: #42424B; border-color: #E6E6EA; }"
+        "QPushButton#galaxyNotificationAction:pressed { background: #2B2B31; border-color: #202025 #0A0A0C #45454F #202025; }"
+        // Like the stop button: Orbit's danger button.
+        "QToolButton#galaxyNotificationClose { background: #5A2328; border-style: solid; border-width: 1px 1px 2px 1px;"
+        " border-color: #7A2F36 #0A0A0C #381619 #67282E; border-radius: 0; padding: 3px; margin-top: 8px; }"
+        "QToolButton#galaxyNotificationClose:hover { background: #73292F; border-color: #E6E6EA; }"
+        "QToolButton#galaxyNotificationClose:pressed { background: #4A1D21; }");
 }
 
 QString kindName(Kind kind)
@@ -86,6 +160,12 @@ class NotificationCard : public QFrame {
         m_accent = new QFrame(this);
         m_accent->setFixedWidth(4);
         outer->addWidget(m_accent);
+        // Orbit: the kind's pixel icon, like the head or icon of Orbit's social popups.
+        m_icon = new QLabel(this);
+        m_icon->setFixedSize(18, 18);
+        m_icon->setContentsMargins(0, 0, 0, 0);
+        outer->addWidget(m_icon, 0, Qt::AlignTop);
+        m_icon->hide();
 
         auto* body = new QVBoxLayout();
         body->setContentsMargins(0, 10, 0, 10);
@@ -110,7 +190,7 @@ class NotificationCard : public QFrame {
         body->addLayout(m_actions);
         outer->addLayout(body, 1);
 
-        auto* close = new QToolButton(this);
+        auto* close = m_close = new QToolButton(this);
         close->setObjectName("galaxyNotificationClose");
         close->setText(QStringLiteral("✕"));
         close->setAutoRaise(true);
@@ -131,7 +211,18 @@ class NotificationCard : public QFrame {
             return;
         }
         const QColor color = kindColor(notification->kind);
-        m_accent->setStyleSheet(QStringLiteral("background: %1; border-radius: 2px;").arg(color.name()));
+        const bool orbit = GalaxyLook::orbit();
+        m_accent->setStyleSheet(QStringLiteral("background: %1; border-radius: %2px;").arg(color.name(), orbit ? "0" : "2"));
+        m_accent->setFixedWidth(orbit ? 2 : 4);
+        m_icon->setVisible(orbit);
+        if (orbit) {
+            m_icon->setPixmap(GalaxyLook::pixelIcon(kindIcon(notification->kind), color).pixmap(QSize(18, 18), devicePixelRatioF()));
+            m_icon->setContentsMargins(0, 12, 0, 0);
+            m_icon->setFixedSize(18, 30);
+        }
+        m_close->setText(orbit ? QString() : QStringLiteral("✕"));
+        m_close->setIcon(orbit ? GalaxyLook::pixelIcon("close", QColor(0xFF, 0xB0, 0xB0)) : QIcon());
+        m_close->setIconSize(QSize(9, 9));
         m_title->setText(notification->title);
         m_text->setText(notification->text);
         m_text->setVisible(!notification->text.isEmpty());
@@ -209,6 +300,8 @@ class NotificationCard : public QFrame {
     int m_timeout = 0;
     bool m_relayouting = false;
     QFrame* m_accent;
+    QLabel* m_icon;
+    QToolButton* m_close = nullptr;
     QLabel* m_title;
     QLabel* m_text;
     QProgressBar* m_progress;
@@ -219,20 +312,12 @@ class NotificationCard : public QFrame {
 NotificationArea::NotificationArea(QWidget* parent) : QWidget(parent)
 {
     setObjectName("galaxyNotificationArea");
-    setStyleSheet(QStringLiteral(
-        "QFrame#galaxyNotification { background: #1A1438; border: 1px solid #3A2F70; border-radius: 10px; }"
-        "QLabel#galaxyNotificationTitle { color: #ECE9FF; font-weight: bold; }"
-        "QLabel#galaxyNotificationText { color: #BDB6E0; }"
-        "QProgressBar#galaxyNotificationProgress { background: #2C2358; border: 0; border-radius: 2px; }"
-        "QProgressBar#galaxyNotificationProgress::chunk { background: #A78BFA; border-radius: 2px; }"
-        "QPushButton#galaxyNotificationAction { color: #C4B5FD; background: #2A2152; border: 1px solid #4C3D96; border-radius: 6px;"
-        " padding: 3px 10px; }"
-        "QPushButton#galaxyNotificationAction:hover { background: #352A68; }"
-        // The close button has the soft red background of the top bar's stop button.
-        "QToolButton#galaxyNotificationClose { color: #F3D2D2; background: rgba(248, 113, 113, 34); border: 1px solid rgba(248, 113, 113, 85);"
-        " border-radius: 6px; padding: 1px 6px; margin-top: 8px; }"
-        "QToolButton#galaxyNotificationClose:hover { background: rgba(248, 113, 113, 70); border-color: rgba(252, 165, 165, 150); }"
-        "QToolButton#galaxyNotificationClose:pressed { background: rgba(220, 38, 38, 110); }"));
+    GalaxyLook::onChange(this, [this] {
+        setStyleSheet(GalaxyLook::orbit() ? orbitStyle() : galaxyStyle());
+        for (int id : std::as_const(m_order)) {
+            refresh(id);
+        }
+    });
     parent->installEventFilter(this);
     setGeometry(parent->rect());
 

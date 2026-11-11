@@ -63,6 +63,7 @@
 #include "ui/pages/global/ExternalToolsPage.h"
 #include "ui/pages/global/JavaPage.h"
 #include "ui/pages/global/GalaxyPage.h"
+#include "ui/galaxy/GalaxyLook.h"
 #include "ui/galaxy/GalaxySettings.h"
 #include "ui/pages/global/LanguagePage.h"
 #include "ui/pages/global/LauncherPage.h"
@@ -314,7 +315,7 @@ Application::Application(int& argc, char** argv) : QApplication(argc, argv)
     setOrganizationName(BuildConfig.LAUNCHER_NAME);
     setOrganizationDomain(BuildConfig.LAUNCHER_DOMAIN);
     setApplicationName(BuildConfig.LAUNCHER_NAME);
-    setApplicationDisplayName(QString("%1 %2").arg(BuildConfig.LAUNCHER_DISPLAYNAME, BuildConfig.printableVersionString()));
+    setApplicationDisplayName(QString("%1 %2").arg(BuildConfig.LAUNCHER_DISPLAYNAME, BuildConfig.GALAXY_VERSION));
     setApplicationVersion(BuildConfig.printableVersionString() + "\n" + BuildConfig.GIT_COMMIT);
     setDesktopFileName(BuildConfig.LAUNCHER_APPID);
     m_startTime = QDateTime::currentDateTime();
@@ -1547,7 +1548,7 @@ JavaInstallList* Application::javalist()
 
 QIcon Application::logo()
 {
-    return QIcon(":/" + BuildConfig.LAUNCHER_SVGFILENAME);
+    return GalaxyLook::logo();  // Galaxy's, or Orbit's with the Orbit theme
 }
 
 bool Application::openJsonEditor(const QString& filename)
@@ -1915,8 +1916,9 @@ void Application::updateCapabilities()
     if (!getMSAClientID().isEmpty()) {
         m_capabilities |= SupportsMSA;
     }
-    // Galaxy Launcher uses Modrinth only: CurseForge stays disabled even if a key is configured, so no CurseForge
-    // pages, searches, update checks or API calls happen anywhere in the launcher.
+    if (!getFlameAPIKey().isEmpty()) {
+        m_capabilities |= SupportsFlame;
+    }
 
 #ifdef Q_OS_LINUX
 #ifdef ENABLE_GAMEMODE
@@ -2027,21 +2029,21 @@ bool Application::handleDataMigration(const QString& currentData, const QString&
     if (currentExists) {
         message = tr("Old data from %1 was found, but you already have existing data for %2. Sadly you will need to migrate yourself. Do "
                      "you want to be reminded of the pending data migration next time you start %2?")
-                      .arg(name, BuildConfig.LAUNCHER_DISPLAYNAME);
+                      .arg(name, GalaxyLook::launcherName());
     } else {
         message = tr("It looks like you used %1 before. Do you want to migrate your data to the new location of %2?")
-                      .arg(name, BuildConfig.LAUNCHER_DISPLAYNAME);
+                      .arg(name, GalaxyLook::launcherName());
 
         QFileInfo logInfo(FS::PathCombine(oldData, name + "-0.log"));
         if (logInfo.exists()) {
             QString lastModified = logInfo.lastModified().toString(locale.dateFormat());
             message = tr("It looks like you used %1 on %2 before. Do you want to migrate your data to the new location of %3?")
-                          .arg(name, lastModified, BuildConfig.LAUNCHER_DISPLAYNAME);
+                          .arg(name, lastModified, GalaxyLook::launcherName());
         }
     }
 
     QMessageBox::StandardButton askMoveDialogue =
-        QMessageBox::question(nullptr, BuildConfig.LAUNCHER_DISPLAYNAME, message, QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+        QMessageBox::question(nullptr, GalaxyLook::launcherName(), message, QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
 
     auto setDoNotMigrate = [&nomigratePath] {
         QFile file(nomigratePath);
@@ -2081,7 +2083,7 @@ bool Application::handleDataMigration(const QString& currentData, const QString&
             setDoNotMigrate();
         } else {
             QString reason = task.failReason();
-            QMessageBox::critical(nullptr, BuildConfig.LAUNCHER_DISPLAYNAME, tr("Migration failed! Reason: %1").arg(reason));
+            QMessageBox::critical(nullptr, GalaxyLook::launcherName(), tr("Migration failed! Reason: %1").arg(reason));
         }
     } else {
         qWarning() << "<> Migration was skipped, due to existing data";

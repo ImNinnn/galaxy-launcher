@@ -47,6 +47,7 @@
 #include "ui/dialogs/ResourceDownloadDialog.h"
 #include "ui/pages/modplatform/ResourcePage.h"
 #include "ui/themes/GalaxyTheme.h"
+#include "GalaxyLook.h"
 
 using Category = ProjectActions::Category;
 
@@ -145,7 +146,7 @@ DiscoverWindow::DiscoverWindow(QWidget* parent, bool embedded) : QDialog(parent,
     auto* header = new QWidget(this);
     header->setObjectName("galaxyTopBar");
     header->setAttribute(Qt::WA_StyledBackground);
-    header->setStyleSheet(GalaxyTheme::chromeStyleSheet());
+    GalaxyLook::onChange(header, [header] { header->setStyleSheet(GalaxyTheme::chromeStyleSheet()); });
     auto* headerLayout = new QHBoxLayout(header);
     headerLayout->setContentsMargins(14, 8, 14, 8);
     headerLayout->setSpacing(10);
@@ -161,6 +162,14 @@ DiscoverWindow::DiscoverWindow(QWidget* parent, bool embedded) : QDialog(parent,
     m_tabs->addTab(QIcon::fromTheme("shaderpacks"), tr("Shader packs"));
     m_tabs->addTab(QIcon::fromTheme("datapacks"), tr("Data packs"));
     m_tabs->setAccessibleName(tr("Content type"));
+    GalaxyLook::onChange(m_tabs, [this] {
+        const std::pair<const char*, const char*> icons[] = {
+            { "loadermods", "bundle" }, { "resourcepacks", "image" }, { "shaderpacks", "star" }, { "datapacks", "grid" }
+        };
+        for (int i = 0; i < m_tabs->count() && i < 4; i++) {
+            m_tabs->setTabIcon(i, GalaxyLook::icon(QIcon::fromTheme(icons[i].first), icons[i].second));
+        }
+    });
     auto* into = new QLabel(tr("Install into"), header);
     into->setObjectName("galaxyLocation");
     m_profile = new QComboBox(header);
@@ -172,7 +181,10 @@ DiscoverWindow::DiscoverWindow(QWidget* parent, bool embedded) : QDialog(parent,
         m_profile->setMinimumWidth(160);
         auto* close = new QToolButton(header);
         close->setObjectName("galaxyPanelClose");
-        close->setText(QStringLiteral("✕"));
+        GalaxyLook::onChange(close, [close] {
+            close->setText(GalaxyLook::orbit() ? QString() : QStringLiteral("✕"));
+            close->setIcon(GalaxyLook::orbit() ? GalaxyLook::pixelIcon("close", QColor(0xFF, 0xB0, 0xB0)) : QIcon());
+        });
         close->setAutoRaise(true);
         close->setToolTip(tr("Close Discover"));
         close->setAccessibleName(tr("Close Discover"));
@@ -186,7 +198,7 @@ DiscoverWindow::DiscoverWindow(QWidget* parent, bool embedded) : QDialog(parent,
         auto* tabsRow = new QWidget(this);
         tabsRow->setObjectName("galaxyTopBar");
         tabsRow->setAttribute(Qt::WA_StyledBackground);
-        tabsRow->setStyleSheet(GalaxyTheme::chromeStyleSheet());
+        GalaxyLook::onChange(tabsRow, [tabsRow] { tabsRow->setStyleSheet(GalaxyTheme::chromeStyleSheet()); });
         auto* tabsLayout = new QHBoxLayout(tabsRow);
         tabsLayout->setContentsMargins(10, 0, 10, 6);
         tabsLayout->addWidget(m_tabs);
@@ -430,7 +442,7 @@ void DiscoverWindow::rebuild(const QString& search)
     dialog->show();
 
     m_status->setText(
-        tr("Projects come from Modrinth. Select projects (and versions) in the list, then press \"Review and confirm\": nothing "
+        tr("Projects come from Modrinth, CurseForge or Orbit (choose on the left). Select projects (and versions) in the list, then press \"Review and confirm\": nothing "
            "is installed before you confirm. Use the filter button next to the search field for Minecraft version, loader, "
            "categories and more."));
 

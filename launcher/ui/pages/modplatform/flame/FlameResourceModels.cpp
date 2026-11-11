@@ -8,13 +8,13 @@
 
 #include "minecraft/MinecraftInstance.h"
 #include "minecraft/PackProfile.h"
-#include "modplatform/flame/FlameAPI.h"
+#include "modplatform/flame/CurseForgeAPI.h"
 #include "ui/pages/modplatform/flame/FlameResourcePages.h"
 
 namespace ResourceDownload {
 
 FlameTexturePackModel::FlameTexturePackModel(ResourceFolderModel* resourceList)
-    : TexturePackResourceModel(resourceList, &FlameAPI::get(), Flame::debugName(), Flame::metaEntryBase())
+    : TexturePackResourceModel(resourceList, &CurseForgeAPI::get(), Flame::debugName(), Flame::metaEntryBase())
 {}
 
 ResourceAPI::SearchArgs FlameTexturePackModel::createSearchArguments()

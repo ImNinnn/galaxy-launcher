@@ -38,6 +38,7 @@
 #include "minecraft/PackProfile.h"
 #include "minecraft/auth/AccountList.h"
 #include "settings/SettingsObject.h"
+#include "GalaxyLook.h"
 
 namespace {
 
@@ -91,6 +92,8 @@ DiscordPresence::DiscordPresence(QObject* parent) : QObject(parent), m_launcherS
     m_update.setSingleShot(true);
     m_update.setInterval(1500);
     connect(&m_update, &QTimer::timeout, this, &DiscordPresence::pushActivity);
+    // With the Orbit look, the status shows Orbit Launcher and its logo (the Discord application stays Galaxy's).
+    connect(GalaxyLook::notifier(), &GalaxyLook::Notifier::changed, this, [this] { m_update.start(); });
 
     auto* instances = APPLICATION->instances();
     connect(instances, &QAbstractItemModel::rowsInserted, this, &DiscordPresence::watchInstances);
@@ -305,7 +308,8 @@ void DiscordPresence::pushActivity()
         return;
     }
     QJsonObject activity;
-    QJsonObject assets{ { "large_image", m_iconUrl }, { "large_text", BuildConfig.LAUNCHER_DISPLAYNAME } };
+    const QString largeImage = GalaxyLook::orbit() ? QStringLiteral("https://orbitcosmetics.dev/assets/img/icon-512.png") : m_iconUrl;
+    QJsonObject assets{ { "large_image", largeImage }, { "large_text", GalaxyLook::launcherName() } };
     if (auto* playing = playingInstance()) {
         auto* profile = playing->getPackProfile();
         const auto version = profile ? profile->getComponentVersion("net.minecraft") : QString();

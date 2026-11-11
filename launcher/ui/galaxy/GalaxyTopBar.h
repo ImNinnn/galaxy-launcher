@@ -67,4 +67,6 @@ class GalaxyTopBar : public QWidget {
     QList<QToolButton*> m_textButtons;  ///< Buttons that show text when there is room.
     QWidget* m_windowControls = nullptr;
     QToolButton* m_maximize = nullptr;
+    QString m_area;     ///< The last location, to show it again in the other look.
+    QString m_profile;
 };

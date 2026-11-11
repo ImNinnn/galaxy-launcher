@@ -48,10 +48,12 @@
 
 #include "Application.h"
 #include "settings/SettingsObject.h"
+#include "GalaxyLook.h"
 #include "GalaxySettings.h"
 #include "InstanceList.h"
 #include "MMCTime.h"
 #include "ModCategories.h"
+#include "OrbitPainter.h"
 #include "ProfileOrganizer.h"
 #include "StringUtils.h"
 #include "SunColor.h"
@@ -82,11 +84,6 @@ constexpr int StarTileSize = 512;        ///< Logical pixels of one tileable sta
 constexpr qreal ShootingStarPeriod = 37.0;
 constexpr int OverviewPlanetLimit = 11;  ///< Plus the base game planet: four orbits of three.
 
-const QColor Accent(167, 139, 250);
-const QColor AccentStrong(139, 92, 246);
-const QColor TextColor(236, 233, 255);
-const QColor MutedText(184, 178, 217);
-const QColor OrbitColor(176, 160, 255);
 
 qreal clamp01(qreal v)
 {
@@ -233,6 +230,9 @@ qreal twinkle(const QString& key, qreal time)
 /** Icons for the on-screen view buttons, drawn in the sidebar icons' style: 0 = plus, 1 = minus, 2 = fit the view. */
 QIcon viewButtonIcon(int which)
 {
+    if (GalaxyLook::orbit()) {
+        return GalaxyLook::pixelIcon(which == 0 ? "plus" : which == 1 ? "minus" : "fit", GalaxyLook::Orbit::Text);
+    }
     QIcon icon;
     for (const int size : { 18, 36, 54 }) {
         QPixmap pixmap(size, size);
@@ -420,6 +420,8 @@ GalaxyView::GalaxyView(QWidget* parent) : QWidget(parent)
     create->setIcon(QIcon::fromTheme("new"));
     auto* import = new QPushButton(tr("Import profile"), m_emptyState);
     import->setIcon(QIcon::fromTheme("viewfolder"));
+    GalaxyLook::bindIcon(create, "plus");
+    GalaxyLook::bindIcon(import, "folder");
     buttons->addStretch();
     buttons->addWidget(create);
     buttons->addWidget(import);
@@ -435,9 +437,6 @@ GalaxyView::GalaxyView(QWidget* parent) : QWidget(parent)
     // Accessibility (Settings › Galaxy): on-screen buttons to zoom and to reset the view, at the bottom left.
     m_viewButtons = new QWidget(this);
     m_viewButtons->setObjectName("galaxyViewButtons");
-    m_viewButtons->setStyleSheet(QStringLiteral("QToolButton { background: rgba(26, 20, 56, 225); border: 1px solid #3A2F70; border-radius: 8px; }"
-                                                "QToolButton:hover { background: #2A2152; border-color: #6D5BD0; }"
-                                                "QToolButton:pressed { background: #352A68; }"));
     auto* viewButtons = new QVBoxLayout(m_viewButtons);
     viewButtons->setContentsMargins(0, 0, 0, 0);
     viewButtons->setSpacing(6);
@@ -463,11 +462,58 @@ GalaxyView::GalaxyView(QWidget* parent) : QWidget(parent)
     connect(m_resetViewButton, &QToolButton::clicked, this, &GalaxyView::resetView);
     m_viewButtons->hide();
 
+    GalaxyLook::onChange(this, [this] { applyLook(); });
     reloadSettings();
     rebuildSystems();
 }
 
 GalaxyView::~GalaxyView() = default;
+
+void GalaxyView::applyLook()
+{
+    if (GalaxyLook::orbit()) {
+        m_viewButtons->setStyleSheet(QStringLiteral(
+            "QToolButton { background: #34343C; border-style: solid; border-width: 1px 1px 2px 1px;"
+            " border-color: #464651 #0A0A0C #202025 #3C3C45; border-radius: 0; }"
+            "QToolButton:hover { background: #42424B; border-color: #E6E6EA; }"
+            "QToolButton:pressed { background: #2B2B31; border-color: #202025 #0A0A0C #45454F #202025; }"));
+    } else {
+        m_viewButtons->setStyleSheet(QStringLiteral("QToolButton { background: rgba(26, 20, 56, 225); border: 1px solid #3A2F70; border-radius: 8px; }"
+                                                    "QToolButton:hover { background: #2A2152; border-color: #6D5BD0; }"
+                                                    "QToolButton:pressed { background: #352A68; }"));
+    }
+    m_zoomInButton->setIcon(viewButtonIcon(0));
+    m_zoomOutButton->setIcon(viewButtonIcon(1));
+    m_resetViewButton->setIcon(viewButtonIcon(2));
+    // Every cached picture was drawn in the other look.
+    m_sphereSprites.clear();
+    m_starfieldBuiltQuality = -1;
+    update();
+}
+
+void GalaxyView::paintPanel(QPainter& p, const QRectF& rect, qreal radius, int alpha, bool outlined)
+{
+    p.save();
+    if (GalaxyLook::orbit()) {
+        // Orbit's panel: square, a 1 px border, a light top edge and a 2 px red bar on the left.
+        namespace O = GalaxyLook::Orbit;
+        p.setRenderHint(QPainter::Antialiasing, false);
+        const QRect r = rect.toAlignedRect();
+        p.fillRect(r, withAlphaF(O::Panel, alpha / 255.0));
+        p.setPen(withAlphaF(outlined ? O::BorderLight : O::Border, alpha / 255.0));
+        p.setBrush(Qt::NoBrush);
+        p.drawRect(r.adjusted(0, 0, -1, -1));
+        p.fillRect(QRect(r.left() + 1, r.top() + 1, r.width() - 2, 1), QColor(255, 255, 255, alpha * 31 / 255));
+        if (outlined) {
+            p.fillRect(QRect(r.left(), r.top(), 2, r.height()), O::Red);
+        }
+    } else {
+        p.setPen(outlined ? QPen(withAlphaF(GalaxyLook::accent(), 0.55), 1) : Qt::NoPen);
+        p.setBrush(QColor(12, 9, 30, alpha));
+        p.drawRoundedRect(rect, radius, radius);
+    }
+    p.restore();
+}
 
 // ---------------------------------------------------------------------------------------------------------------
 // Settings
@@ -1806,7 +1852,7 @@ void GalaxyView::paintEvent(QPaintEvent*)
     if (hasFocus() && m_keyboardFocus && m_focus.type == HitType::None && m_systems.size() > 0) {
         // Keyboard users need to see that the canvas has focus.
         p.save();
-        p.setPen(QPen(withAlphaF(Accent, 0.5), 1, Qt::DashLine));
+        p.setPen(QPen(withAlphaF(GalaxyLook::accent(), 0.5), 1, Qt::DashLine));
         p.setBrush(Qt::NoBrush);
         p.drawRect(rect().adjusted(1, 1, -2, -2));
         p.restore();
@@ -1820,7 +1866,7 @@ void GalaxyView::paintBackground(QPainter& p, qreal e)
     if (m_starfieldSize != size() || !qFuzzyCompare(m_starfieldDpr, dpr) || m_starfieldBuiltQuality != m_starfieldQuality) {
         m_skyBase = CelestialPainter::renderSkyBase(size(), SkyMargin, dpr, m_starfieldQuality);
         for (int layer = 0; layer < 2; layer++) {
-            m_starTiles[layer] = CelestialPainter::renderStarTile(StarTileSize, layer, dpr, m_starfieldQuality);
+            m_starTiles[layer] = CelestialPainter::renderStarTile(tileSize(), layer, dpr, m_starfieldQuality);
         }
         m_starfieldSize = size();
         m_starfieldDpr = dpr;
@@ -1841,16 +1887,28 @@ void GalaxyView::paintBackground(QPainter& p, qreal e)
     const QPointF nebula = view * 0.006 + drift * 0.15;
     auto soft = [](qreal v) { return SkyMargin * std::tanh(v / SkyMargin); };
     p.drawPixmap(QPointF(-SkyMargin - soft(nebula.x()), -SkyMargin - soft(nebula.y())), m_skyBase);
-    if (m_starfieldQuality <= 0) {
+    if (m_starfieldQuality <= 0 && !GalaxyLook::orbit()) {
         return;
     }
 
-    auto wrap = [](qreal v) {
-        v = std::fmod(v, static_cast<qreal>(StarTileSize));
-        return v < 0 ? v + StarTileSize : v;
+    const int tile = tileSize();
+    auto wrap = [tile](qreal v) {
+        v = std::fmod(v, static_cast<qreal>(tile));
+        return v < 0 ? v + tile : v;
     };
     // Distant stars, then near stars which move most (parallax depth).
     const QPointF far = view * 0.02 + drift * 0.45;
+    if (GalaxyLook::orbit()) {
+        // Orbit's grid: two layers, the 20 px grid and nearer crosses that move more; on whole pixels, always crisp.
+        const QPointF near = view * 0.055 + drift;
+        auto snap = [&wrap](QPointF v) { return QPointF(std::round(wrap(v.x())), std::round(wrap(v.y()))); };
+        p.drawTiledPixmap(QRectF(rect()), m_starTiles[0], snap(far));
+        if (m_starfieldQuality >= 1) {
+            p.drawTiledPixmap(QRectF(rect()), m_starTiles[1], snap(near));
+        }
+        paintComet(p);
+        return;
+    }
     p.drawTiledPixmap(QRectF(rect()), m_starTiles[0], QPointF(wrap(far.x()), wrap(far.y())));
     if (m_starfieldQuality >= 2) {
 
@@ -1895,6 +1953,40 @@ void GalaxyView::paintBackground(QPainter& p, qreal e)
     }
 }
 
+int GalaxyView::tileSize() const
+{
+    return GalaxyLook::orbit() ? OrbitPainter::GridTileSize : StarTileSize;
+}
+
+void GalaxyView::paintComet(QPainter& p)
+{
+    if (!m_backgroundMotion || m_reducedMotion || m_renderQuality < 1) {
+        return;
+    }
+    const int cycle = static_cast<int>(m_driftTime / ShootingStarPeriod);
+    const qreal age = m_driftTime - cycle * ShootingStarPeriod - 8.0;  // 8 s into each period, like Galaxy's
+    if (cycle < 0 || age < 0 || age >= 1.2) {
+        return;
+    }
+    const auto seed = static_cast<std::uint32_t>(cycle) * 2654435761U;
+    const qreal sx = (seed % 1000U) / 1000.0 * width();
+    const qreal sy = ((seed >> 10U) % 1000U) / 1000.0 * height() * 0.5;
+    const qreal u = age / 1.2;
+    // A diagonal of square pixels on the 4 px grid, brightest at the head.
+    const int step = 4;
+    const int travelled = static_cast<int>(u * 420 / step);
+    const qreal alpha = std::sin(M_PI * u) * 0.6;
+    p.save();
+    p.setRenderHint(QPainter::Antialiasing, false);
+    for (int k = 0; k < 9; k++) {
+        const int at = travelled - k;
+        const QPoint cell(static_cast<int>(sx / step) + at, static_cast<int>(sy / step) + at * 2 / 3);
+        const qreal fade = alpha * (1 - k / 9.0);
+        p.fillRect(QRect(cell * step, QSize(k == 0 ? 3 : 2, k == 0 ? 3 : 2)), withAlphaF(k == 0 ? QColor(Qt::white) : GalaxyLook::Orbit::Muted, fade));
+    }
+    p.restore();
+}
+
 void GalaxyView::paintLabel(QPainter& p, const QPointF& anchor, const QString& text, qreal opacity, bool emphasized)
 {
     if (text.isEmpty() || opacity <= 0.01) {
@@ -1912,10 +2004,8 @@ void GalaxyView::paintLabel(QPainter& p, const QPointF& anchor, const QString& t
     p.save();
     p.setOpacity(p.opacity() * opacity);
     p.setFont(font);
-    p.setPen(emphasized ? QPen(withAlphaF(Accent, 0.55), 1) : Qt::NoPen);
-    p.setBrush(QColor(12, 9, 30, emphasized ? 215 : 165));
-    p.drawRoundedRect(box, box.height() / 2, box.height() / 2);
-    p.setPen(emphasized ? TextColor : MutedText);
+    paintPanel(p, box, box.height() / 2, emphasized ? 215 : 165, emphasized);
+    p.setPen(emphasized ? GalaxyLook::textColor() : GalaxyLook::mutedText());
     p.drawText(box, Qt::AlignCenter, elided);
     p.restore();
 }
@@ -2061,6 +2151,28 @@ void GalaxyView::paintBeam(QPainter& p, const Camera& cam, qreal fade)
     p.save();
     p.setOpacity(p.opacity() * alpha);
     p.setBrush(Qt::NoBrush);
+    if (GalaxyLook::orbit()) {
+        // A hard red beam with a white core and a square spark: no glow.
+        namespace O = GalaxyLook::Orbit;
+        p.setRenderHint(QPainter::Antialiasing, false);
+        p.setPen(QPen(O::RedDark, 5, Qt::SolidLine, Qt::SquareCap));
+        p.drawLine(from, head);
+        p.setPen(QPen(O::Red, 3, Qt::SolidLine, Qt::SquareCap));
+        p.drawLine(from, head);
+        p.setPen(QPen(O::EdgeHot, 1, Qt::SolidLine, Qt::SquareCap));
+        p.drawLine(from, head);
+        const QPoint spark = head.toPoint();
+        p.fillRect(QRect(spark - QPoint(4, 4), QSize(9, 9)), O::Red);
+        p.fillRect(QRect(spark - QPoint(2, 2), QSize(5, 5)), Qt::white);
+        if (bt >= BeamArrive) {
+            const qreal ring = clamp01((bt - BeamArrive) / (BeamDuration - BeamArrive));
+            const qreal radius = (GalaxyLayout::OverviewRadius * 0.6 + ring * GalaxyLayout::OverviewRadius) * cam.zoom;
+            p.setPen(QPen(withAlphaF(O::Red, 0.8 * (1 - ring)), 2, Qt::SolidLine, Qt::SquareCap, Qt::MiterJoin));
+            p.drawRect(QRectF(to.x() - radius, to.y() - radius * TiltSin, 2 * radius, 2 * radius * TiltSin).toAlignedRect());
+        }
+        p.restore();
+        return;
+    }
     // Soft glow, then a bright core, then a spark at the head.
     p.setPen(QPen(withAlphaF(glow, 0.22), 12, Qt::SolidLine, Qt::RoundCap));
     p.drawLine(from, head);
@@ -2127,8 +2239,8 @@ void GalaxyView::paintGalaxyLayer(QPainter& p, qreal fade)
     const int q = quality();
     const int target = m_targetMode == Mode::System || m_transitionStart >= 0 ? systemIndexOf(m_systemId) : -1;
 
-    // Faint galactic core, so the systems read as one galaxy rather than loose dots.
-    if (q >= 1) {
+    // Faint galactic core, so the systems read as one galaxy rather than loose dots (Orbit has no glows).
+    if (q >= 1 && !GalaxyLook::orbit()) {
         qreal maxR = 0;
         for (const auto& node : m_systems) {
             maxR = std::max(maxR, std::hypot(node.pos.x(), node.pos.y()));
@@ -2202,10 +2314,36 @@ void GalaxyView::paintGalaxyLayer(QPainter& p, qreal fade)
         p.setOpacity(alpha);
 
         // Selection and hover: an outlined disc on the plane, not just a color change.
-        if (selected || hovered || focused) {
+        if ((selected || hovered || focused) && GalaxyLook::orbit()) {
+            // Orbit: a rectangle on the plane, red with corner brackets when selected, dashed grey when hovered.
+            namespace O = GalaxyLook::Orbit;
+            const qreal rx = GalaxyLayout::OverviewRadius * 1.08 * zoom;
+            const QRect box = QRectF(c.x() - rx, c.y() - rx * TiltSin, 2 * rx, 2 * rx * TiltSin).toAlignedRect();
+            p.save();
+            p.setRenderHint(QPainter::Antialiasing, false);
+            p.fillRect(box, selected ? QColor(255, 38, 38, hovered ? 26 : 16) : QColor(255, 255, 255, hovered ? 14 : 8));
+            QPen pen(selected ? withAlphaF(O::Red, 0.85) : O::Dashed, 1, selected ? Qt::SolidLine : Qt::CustomDashLine, Qt::FlatCap, Qt::MiterJoin);
+            if (!selected) {
+                pen.setDashPattern({ 2, 2 });
+            }
+            p.setPen(pen);
+            p.setBrush(Qt::NoBrush);
+            p.drawRect(box.adjusted(0, 0, -1, -1));
+            if (selected) {
+                const int arm = std::clamp(box.width() / 6, 4, 14);
+                for (const QPoint& corner : { box.topLeft(), box.topRight(), box.bottomLeft(), box.bottomRight() }) {
+                    const int dx = corner.x() == box.left() ? 1 : -1;
+                    const int dy = corner.y() == box.top() ? 1 : -1;
+                    const QPoint at = corner + QPoint(dx < 0 ? -1 : 0, dy < 0 ? -1 : 0);
+                    p.fillRect(QRect(at.x() + (dx < 0 ? -arm + 1 : 0), at.y() + (dy < 0 ? -1 : 0), arm, 2), O::Red);
+                    p.fillRect(QRect(at.x() + (dx < 0 ? -1 : 0), at.y() + (dy < 0 ? -arm + 1 : 0), 2, arm), O::Red);
+                }
+            }
+            p.restore();
+        } else if (selected || hovered || focused) {
             const qreal rx = GalaxyLayout::OverviewRadius * 1.08 * zoom;
             p.setBrush(QColor(140, 100, 255, hovered ? 34 : 22));
-            QPen pen(withAlphaF(Accent, selected ? 0.85 : 0.5), selected ? 1.6 : 1.0, selected ? Qt::SolidLine : Qt::DashLine);
+            QPen pen(withAlphaF(GalaxyLook::accent(), selected ? 0.85 : 0.5), selected ? 1.6 : 1.0, selected ? Qt::SolidLine : Qt::DashLine);
             p.setPen(pen);
             p.drawEllipse(c, rx, rx * TiltSin);
         }
@@ -2316,6 +2454,35 @@ void GalaxyView::paintClusters(QPainter& p, const Camera& cam, qreal fade)
         if (c.x() < -rx || c.x() > width() + rx || c.y() < -ry - fm.height() || c.y() > height() + ry) {
             continue;
         }
+        if (GalaxyLook::orbit()) {
+            // Orbit: a faint rectangle on the plane, with a dashed outline when outlines are on.
+            p.save();
+            p.setRenderHint(QPainter::Antialiasing, false);
+            const QRect area = QRectF(c.x() - rx * 0.96, c.y() - ry * 0.96, 2 * rx * 0.96, 2 * ry * 0.96).toAlignedRect();
+            p.fillRect(area, QColor(255, 255, 255, 7));
+            if (m_categoryOutlines) {
+                QPen edge(QColor(176, 176, 186, 60), 1, Qt::CustomDashLine, Qt::FlatCap, Qt::MiterJoin);
+                edge.setDashPattern({ 2, 2 });
+                p.setPen(edge);
+                p.setBrush(Qt::NoBrush);
+                p.drawRect(area.adjusted(0, 0, -1, -1));
+            }
+            const QFont label = [&font] {
+                QFont f = font;
+                f.setCapitalization(QFont::AllUppercase);
+                f.setLetterSpacing(QFont::PercentageSpacing, 112);
+                return f;
+            }();
+            const QFontMetricsF lfm(label);
+            const QString text = lfm.elidedText(cluster.name, Qt::ElideRight, std::max(80.0, rx * 1.6));
+            const QRectF box(area.left(), area.top() - lfm.height() - 6, lfm.horizontalAdvance(text) + 14, lfm.height() + 4);
+            paintPanel(p, box, 0, 150, false);
+            p.setFont(label);
+            p.setPen(GalaxyLook::Orbit::Faint.lighter(125));
+            p.drawText(box, Qt::AlignCenter, text);
+            p.restore();
+            continue;
+        }
         p.save();
         p.translate(c);
         p.scale(1.0, TiltSin);
@@ -2369,7 +2536,7 @@ void GalaxyView::paintMiniSystem(QPainter& p, int index, QPointF c, qreal zoom, 
     constexpr int perOrbit = GalaxyLayout::MaxPlanetsPerOrbit;
     if (m_showOrbits && q >= 1) {
         for (int k = 0; k < overviewOrbits && k * perOrbit < planets + 1; k++) {
-            CelestialPainter::drawOrbit(p, c, orbitRadii[k] * zoom, orbitRadii[k] * zoom * TiltSin, OrbitColor, 0.13);
+            CelestialPainter::drawOrbit(p, c, orbitRadii[k] * zoom, orbitRadii[k] * zoom * TiltSin, GalaxyLook::orbitPath(), 0.13);
         }
     }
 
@@ -2443,7 +2610,7 @@ void GalaxyView::paintMiniSystem(QPainter& p, int index, QPointF c, qreal zoom, 
     auto drawMini = [&p, q](const Mini& mini, bool front) {
         if (mini.ring) {
             CelestialPainter::drawRingHalf(p, mini.at, mini.r * 1.9, mini.r * 1.9 * RingRatio, std::max(1.0, mini.r * 0.35), RingRotation,
-                                           QColor(220, 205, 255), front, q);
+                                           GalaxyLook::ringColor(), front, q);
         }
     };
     std::sort(minis.begin(), minis.end(), [](const Mini& a, const Mini& b) { return a.depth < b.depth; });
@@ -2455,9 +2622,14 @@ void GalaxyView::paintMiniSystem(QPainter& p, int index, QPointF c, qreal zoom, 
         if (node.running && nebulaAmount < 0.5) {
             // Running: a pulsing outline plus a text badge (never color alone).
             const qreal pulse = m_reducedMotion ? 0.5 : 0.5 + 0.5 * std::sin(t * 3.2);
-            p.setPen(QPen(withAlphaF(QColor(134, 239, 172), 0.45 + 0.4 * pulse), 1.5));
-            p.setBrush(Qt::NoBrush);
-            p.drawEllipse(c, sunR * (1.45 + 0.15 * pulse), sunR * (1.45 + 0.15 * pulse));
+            if (GalaxyLook::orbit()) {
+                const int gap = static_cast<int>(std::lround(sunR * (0.45 + 0.15 * pulse) / OrbitPainter::cellFor(sunR)));
+                OrbitPainter::drawOutline(p, c, sunR, withAlphaF(GalaxyLook::Orbit::Green, 0.45 + 0.4 * pulse), std::max(1, gap));
+            } else {
+                p.setPen(QPen(withAlphaF(QColor(134, 239, 172), 0.45 + 0.4 * pulse), 1.5));
+                p.setBrush(Qt::NoBrush);
+                p.drawEllipse(c, sunR * (1.45 + 0.15 * pulse), sunR * (1.45 + 0.15 * pulse));
+            }
         }
         sunDrawn = true;
     };
@@ -2517,7 +2689,7 @@ void GalaxyView::paintSystemLayer(QPainter& p, qreal alpha, QPointF origin, qrea
     // Orbit paths: subtle, behind everything, never hit-testable.
     if (m_showOrbits && q >= 1 && !launchMotion && nebulaAmount < 0.01) {
         for (qreal r : m_layout.orbitRadii) {
-            CelestialPainter::drawOrbit(p, origin, r * zoom, r * zoom * TiltSin, OrbitColor, 0.16);
+            CelestialPainter::drawOrbit(p, origin, r * zoom, r * zoom * TiltSin, GalaxyLook::orbitPath(), 0.16);
         }
     }
 
@@ -2601,7 +2773,7 @@ void GalaxyView::paintSystemLayer(QPainter& p, qreal alpha, QPointF origin, qrea
 
     // The shared orbit of disabled content, while the system is a nebula.
     if (m_showOrbits && q >= 1 && exile.count > 0 && nebula.active() && exileWeight > 0.01) {
-        CelestialPainter::drawOrbit(p, origin, exileRadius * zoom, exileRadius * zoom * TiltSin, OrbitColor, 0.16 * exileWeight);
+        CelestialPainter::drawOrbit(p, origin, exileRadius * zoom, exileRadius * zoom * TiltSin, GalaxyLook::orbitPath(), 0.16 * exileWeight);
     }
 
     // Moon orbits around their host.
@@ -2617,7 +2789,7 @@ void GalaxyView::paintSystemLayer(QPainter& p, qreal alpha, QPointF origin, qrea
                 continue;
             }
             drawn.insert(key);
-            CelestialPainter::drawOrbit(p, placed[node.parent].screen, node.orbitRadius * zoom, node.orbitRadius * zoom * TiltSin, OrbitColor,
+            CelestialPainter::drawOrbit(p, placed[node.parent].screen, node.orbitRadius * zoom, node.orbitRadius * zoom * TiltSin, GalaxyLook::orbitPath(),
                                         0.1);
         }
     }
@@ -2671,9 +2843,14 @@ void GalaxyView::paintSystemLayer(QPainter& p, qreal alpha, QPointF origin, qrea
             CelestialPainter::drawSun(p, origin, sunR, system.color, sunIntensity * (sunHovered ? 1.12 : 1.0), q, 1 - nebulaAmount);
             if (system.running && nebulaAmount < 0.5) {  // the nebula itself shows that the game is running
                 const qreal pulse = m_reducedMotion ? 0.5 : 0.5 + 0.5 * std::sin(t * 3.2);
-                p.setPen(QPen(withAlphaF(QColor(134, 239, 172), 0.45 + 0.4 * pulse), 2));
-                p.setBrush(Qt::NoBrush);
-                p.drawEllipse(origin, sunR * (1.3 + 0.08 * pulse), sunR * (1.3 + 0.08 * pulse));
+                if (GalaxyLook::orbit()) {
+                    const int gap = static_cast<int>(std::lround(sunR * (0.3 + 0.08 * pulse) / OrbitPainter::cellFor(sunR)));
+                    OrbitPainter::drawOutline(p, origin, sunR, withAlphaF(GalaxyLook::Orbit::Green, 0.45 + 0.4 * pulse), std::max(1, gap));
+                } else {
+                    p.setPen(QPen(withAlphaF(QColor(134, 239, 172), 0.45 + 0.4 * pulse), 2));
+                    p.setBrush(Qt::NoBrush);
+                    p.drawEllipse(origin, sunR * (1.3 + 0.08 * pulse), sunR * (1.3 + 0.08 * pulse));
+                }
             }
             HitShape shape;
             shape.hit = { HitType::Sun, -1 };
@@ -2708,7 +2885,7 @@ void GalaxyView::paintSystemLayer(QPainter& p, qreal alpha, QPointF origin, qrea
                 rx = (node.orbitRadius + (target - node.orbitRadius) * exileWeight) * zoom;
             }
             // Disabled shaders are dashed, so they stay visible without relying on their duller color.
-            const QColor color = body.enabled ? QColor(214, 200, 255) : QColor(176, 170, 196);
+            const QColor color = body.enabled ? GalaxyLook::ringColor() : (GalaxyLook::orbit() ? QColor(150, 150, 160) : QColor(176, 170, 196));
             const qreal ringAlpha = pl.alpha * (emphasized ? 1.0 : 0.85) * (1 - pl.sparkle);
             CelestialPainter::drawRingHalf(p, center, rx, rx * RingRatio, pl.r, RingRotation, emphasized ? color.lighter(115) : color,
                                            item.item == Item::RingFront, q, ringAlpha, !body.enabled);
@@ -2745,10 +2922,25 @@ void GalaxyView::paintSystemLayer(QPainter& p, qreal alpha, QPointF origin, qrea
             const QPointF a = project(from.x(), 0, from.y());
             QLinearGradient trail(a, pl.screen);
             const QColor tc = body.kind == CelestialBody::Kind::BaseGame ? QColor(140, 190, 255) : system.color;
-            trail.setColorAt(0, withAlphaF(tc, 0));
-            trail.setColorAt(1, withAlphaF(tc, 0.55 * pl.alpha));
-            p.setPen(QPen(QBrush(trail), std::max(1.0, pl.r * 0.9), Qt::SolidLine, Qt::RoundCap));
-            p.drawLine(a, pl.screen);
+            if (GalaxyLook::orbit()) {
+                // A trail of square pixels, fading towards where the body came from.
+                const qreal side = std::max(2.0, std::round(pl.r * 0.7));
+                const qreal length = QLineF(a, pl.screen).length();
+                const int count = std::clamp(static_cast<int>(length / (side * 1.6)), 1, 24);
+                p.save();
+                p.setRenderHint(QPainter::Antialiasing, false);
+                for (int k = 1; k <= count; k++) {
+                    const qreal u = static_cast<qreal>(k) / (count + 1);
+                    const QPointF at = pl.screen + (a - pl.screen) * u;
+                    p.fillRect(QRectF(std::round(at.x() - side / 2), std::round(at.y() - side / 2), side, side), withAlphaF(tc, 0.55 * pl.alpha * (1 - u)));
+                }
+                p.restore();
+            } else {
+                trail.setColorAt(0, withAlphaF(tc, 0));
+                trail.setColorAt(1, withAlphaF(tc, 0.55 * pl.alpha));
+                p.setPen(QPen(QBrush(trail), std::max(1.0, pl.r * 0.9), Qt::SolidLine, Qt::RoundCap));
+                p.drawLine(a, pl.screen);
+            }
         }
 
         const QPointF dir(-pl.local.x(), -pl.local.y());
@@ -2798,22 +2990,49 @@ void GalaxyView::paintSystemLayer(QPainter& p, qreal alpha, QPointF origin, qrea
         p.save();
         p.setOpacity(p.opacity() * sphereAlpha);
         p.setBrush(Qt::NoBrush);
-        if (body.updateAvailable) {
-            // An update is available: a red outline (dashed when the content is also disabled) and a red "!".
-            p.setPen(QPen(QColor(248, 81, 73), 2, body.enabled ? Qt::SolidLine : Qt::DashLine));
-            p.drawEllipse(pl.screen, r + 2.5, r + 2.5);
-        } else if (!body.enabled) {
-            p.setPen(QPen(QColor(200, 196, 220, 170), 1, Qt::DashLine));
-            p.drawEllipse(pl.screen, r + 2, r + 2);
+        // Orbit: crisp pixel outlines; white when hovered, so it never reads as the red of an update.
+        const bool orbitLook = GalaxyLook::orbit();
+        p.setRenderHint(QPainter::Antialiasing, !orbitLook);
+        const QColor updateColor = orbitLook ? GalaxyLook::Orbit::Red : QColor(248, 81, 73);
+        if (orbitLook) {
+            // Orbit: rings of square pixels on the planet's own grid.
+            if (body.updateAvailable) {
+                OrbitPainter::drawOutline(p, pl.screen, r, updateColor, 1, 1, !body.enabled);
+            } else if (!body.enabled) {
+                OrbitPainter::drawOutline(p, pl.screen, r, withAlphaF(GalaxyLook::Orbit::Dashed, 0.75), 1, 1, true);
+            }
+            if (emphasized) {
+                OrbitPainter::drawOutline(p, pl.screen, r, GalaxyLook::Orbit::EdgeHot, body.updateAvailable || !body.enabled ? 3 : 1);
+            } else if (!m_filter.isEmpty() && pl.match) {
+                OrbitPainter::drawOutline(p, pl.screen, r, withAlphaF(GalaxyLook::Orbit::Muted, 0.85), body.updateAvailable || !body.enabled ? 3 : 1);
+            }
+        } else {
+            if (body.updateAvailable) {
+                // An update is available: a red outline (dashed when the content is also disabled) and a red "!".
+                p.setPen(QPen(updateColor, 2, body.enabled ? Qt::SolidLine : Qt::DashLine));
+                p.drawEllipse(pl.screen, r + 2.5, r + 2.5);
+            } else if (!body.enabled) {
+                p.setPen(QPen(QColor(200, 196, 220, 170), 1, Qt::DashLine));
+                p.drawEllipse(pl.screen, r + 2, r + 2);
+            }
+            if (emphasized) {
+                p.setPen(QPen(GalaxyLook::accent(), 2));
+                p.drawEllipse(pl.screen, r + 4, r + 4);
+            } else if (!m_filter.isEmpty() && pl.match) {
+                p.setPen(QPen(withAlphaF(GalaxyLook::accent(), 0.85), 1.5));
+                p.drawEllipse(pl.screen, r + 3, r + 3);
+            }
         }
-        if (emphasized) {
-            p.setPen(QPen(Accent, 2));
-            p.drawEllipse(pl.screen, r + 4, r + 4);
-        } else if (!m_filter.isEmpty() && pl.match) {
-            p.setPen(QPen(withAlphaF(Accent, 0.85), 1.5));
-            p.drawEllipse(pl.screen, r + 3, r + 3);
-        }
-        if ((body.updateAvailable || !body.issues.isEmpty()) && r >= 3) {
+        if ((body.updateAvailable || !body.issues.isEmpty()) && r >= 3 && orbitLook) {
+            // A square badge with a pixel "!".
+            const QPoint badge = (pl.screen + QPointF(r * 0.75 + 2, -r * 0.75 - 2)).toPoint();
+            const QRect box(badge - QPoint(5, 5), QSize(11, 11));
+            p.fillRect(box, GalaxyLook::Orbit::Edge);
+            p.fillRect(box.adjusted(1, 1, -1, -1), body.updateAvailable ? updateColor : GalaxyLook::Orbit::Yellow);
+            const QColor mark = body.updateAvailable ? QColor(Qt::white) : GalaxyLook::Orbit::Edge;
+            p.fillRect(QRect(badge.x(), badge.y() - 3, 1, 4), mark);
+            p.fillRect(QRect(badge.x(), badge.y() + 2, 1, 1), mark);
+        } else if ((body.updateAvailable || !body.issues.isEmpty()) && r >= 3) {
             const QPointF badge = pl.screen + QPointF(r * 0.75 + 2, -r * 0.75 - 2);
             p.setPen(Qt::NoPen);
             p.setBrush(body.updateAvailable ? QColor(248, 81, 73) : QColor(251, 191, 36));
@@ -2911,7 +3130,8 @@ void GalaxyView::drawCachedSphere(QPainter& p,
     const auto angleBucket = static_cast<quint64>((std::lround(angle / (2 * M_PI) * angleBuckets) % angleBuckets + angleBuckets) % angleBuckets);
     const auto facingBucket = static_cast<quint64>(std::clamp<long>(std::lround((facing + 1) / 2 * (facingBuckets - 1)), 0, facingBuckets - 1));
     const quint64 key = (static_cast<quint64>(style.seed) << 32U) | (r2 << 20U) | (angleBucket << 14U) | (facingBucket << 11U) |
-                        (static_cast<quint64>(quality()) << 9U) | (disabled ? 1U << 8U : 0U) | (style.surface == CelestialPainter::Surface::Terran ? 1U : 0U);
+                        (static_cast<quint64>(quality()) << 9U) | (disabled ? 1U << 8U : 0U) | (GalaxyLook::orbit() ? 1U << 1U : 0U) |
+                        (style.surface == CelestialPainter::Surface::Terran ? 1U : 0U);
 
     auto it = m_sphereSprites.constFind(key);
     if (it == m_sphereSprites.constEnd()) {
@@ -2953,10 +3173,14 @@ void GalaxyView::paintStatus(QPainter& p)
     const QFontMetricsF fm(font());
     const QRectF box(14, 12, fm.horizontalAdvance(status) + 24, fm.height() + 10);
     p.save();
-    p.setPen(QPen(withAlphaF(Accent, 0.45), 1));
-    p.setBrush(QColor(14, 10, 34, 220));
-    p.drawRoundedRect(box, box.height() / 2, box.height() / 2);
-    p.setPen(MutedText);
+    if (GalaxyLook::orbit()) {
+        paintPanel(p, box, 0, 235, true);
+    } else {
+        p.setPen(QPen(withAlphaF(GalaxyLook::accent(), 0.45), 1));
+        p.setBrush(QColor(14, 10, 34, 220));
+        p.drawRoundedRect(box, box.height() / 2, box.height() / 2);
+    }
+    p.setPen(GalaxyLook::mutedText());
     p.drawText(box, Qt::AlignCenter, status);
     p.restore();
 }
@@ -3088,25 +3312,29 @@ void GalaxyView::paintTooltip(QPainter& p)
 
     p.save();
     const QRectF rect(at, box);
-    p.setPen(QPen(withAlphaF(Accent, 0.6), 1));
-    p.setBrush(QColor(16, 11, 38, 240));
-    p.drawRoundedRect(rect, 10, 10);
+    if (GalaxyLook::orbit()) {
+        paintPanel(p, rect, 0, 245, true);
+    } else {
+        p.setPen(QPen(withAlphaF(GalaxyLook::accent(), 0.6), 1));
+        p.setBrush(QColor(16, 11, 38, 240));
+        p.drawRoundedRect(rect, 10, 10);
+    }
     qreal y = rect.top() + 9;
     p.setFont(titleFont);
-    p.setPen(TextColor);
+    p.setPen(GalaxyLook::textColor());
     for (const auto& line : titleLines) {
         p.drawText(QRectF(rect.left() + 12, y, w, tfm.height()), Qt::AlignLeft | Qt::AlignVCenter, line);
         y += tfm.height();
     }
     p.setFont(textFont);
-    p.setPen(MutedText);
+    p.setPen(GalaxyLook::mutedText());
     for (const auto& line : bodyLines) {
         p.drawText(QRectF(rect.left() + 12, y, w, fm.height()), Qt::AlignLeft | Qt::AlignVCenter, line);
         y += fm.height();
     }
     y += 6;
     p.setFont(hintFont);
-    p.setPen(Accent.lighter(110));
+    p.setPen(GalaxyLook::orbit() ? GalaxyLook::Orbit::Faint.lighter(130) : GalaxyLook::accent().lighter(110));
     for (const auto& line : hintLines) {
         p.drawText(QRectF(rect.left() + 12, y, w, hfm.height()), Qt::AlignLeft | Qt::AlignVCenter, line);
         y += hfm.height();

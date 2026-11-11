@@ -19,6 +19,8 @@
 
 #include <QAbstractButton>
 #include <QApplication>
+#include <QCryptographicHash>
+#include <QListView>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
@@ -51,6 +53,9 @@
 #include "Notifications.h"
 #include "ProfileOrganizer.h"
 #include "ProjectActions.h"
+#include "GalaxyLook.h"
+#include "GalaxyTopBar.h"
+#include <QLabel>
 #include "InstanceList.h"
 #include "launch/LaunchTask.h"
 #include "launch/LogModel.h"
@@ -58,11 +63,15 @@
 #include "minecraft/auth/AccountData.h"
 #include "minecraft/auth/steps/MSAStep.h"
 #include "settings/SettingsObject.h"
+#include "ui/themes/ThemeManager.h"
 #include "ui/MainWindow.h"
 #include "ui/pages/instance/ExternalResourcesPage.h"
 #include "ui/dialogs/AboutDialog.h"
 #include "ui/dialogs/ChooseOfflineNameDialog.h"
 #include "ui/dialogs/ProgressDialog.h"
+#include "ui/dialogs/ResourceDownloadDialog.h"
+#include "ui/pages/modplatform/ResourceModel.h"
+#include "ui/pages/modplatform/ResourcePage.h"
 
 namespace {
 
@@ -540,6 +549,112 @@ void runLoginDialogTest(QObject* context)
 }
 }  // namespace
 
+namespace {
+
+/** Discover's browser, while it is open. */
+ResourceDownload::ResourceDownloadDialog* discoverBrowser(MainWindow* window)
+{
+    for (auto* dialog : window->findChildren<ResourceDownload::ResourceDownloadDialog*>()) {
+        if (dialog->isVisible()) {
+            return dialog;
+        }
+    }
+    return nullptr;
+}
+
+/** Shows one of Discover's sources and searches it. */
+ResourceDownload::ResourcePage* searchSource(MainWindow* window, const QString& source, const QString& text)
+{
+    auto* browser = discoverBrowser(window);
+    if (!browser || !browser->selectPage(source)) {
+        return nullptr;
+    }
+    auto* page = browser->selectedPage();
+    page->setSearchTerm(text);
+    QMetaObject::invokeMethod(page, "triggerSearch");
+    return page;
+}
+
+ModPlatform::IndexedPack::Ptr firstResult(ResourceDownload::ResourcePage* page)
+{
+    auto* model = page ? page->getModel() : nullptr;
+    if (!model || model->rowCount({}) == 0) {
+        return nullptr;
+    }
+    return model->data(model->index(0, 0), Qt::UserRole).value<ModPlatform::IndexedPack::Ptr>();
+}
+
+/**
+ * GALAXY_DEV_ORBIT_PROFILE=<id> (a Fabric profile for Minecraft 26.x): installs Orbit from Discover's Orbit source the
+ * way a user does (select, review, confirm), then checks the jar against the server's SHA-256 and that Fabric API
+ * came with it from Modrinth.
+ */
+void runOrbitInstallTest(MainWindow* window, const QString& directory, const QString& profileId)
+{
+    auto* instance = APPLICATION->instances()->getInstanceById(profileId);
+    if (!instance) {
+        qWarning() << "Orbit install test: FAILED, no profile" << profileId;
+        QTimer::singleShot(200, window, &QWidget::close);
+        return;
+    }
+    QTimer::singleShot(1500, window, [window, instance] { ProjectActions::openDownloadDialog(window, instance, ProjectActions::Category::Mods); });
+    QTimer::singleShot(4500, window, [window] { searchSource(window, "orbit", QString()); });
+    QTimer::singleShot(9000, window, [window, directory, instance] {
+        auto* browser = discoverBrowser(window);
+        auto pack = browser ? firstResult(browser->selectedPage()) : nullptr;
+        if (!pack || pack->versions.isEmpty()) {
+            qWarning() << "Orbit install test: FAILED, no Orbit release offered for" << instance->name();
+            window->close();
+            return;
+        }
+        auto version = pack->versions.first();
+        qInfo() << "Orbit install test: selecting" << version.version << "for" << version.mcVersion;
+        browser->addResource(pack, version);
+        window->grab().save(QDir(directory).filePath("40-orbit-selected.png"));
+        // Accept the review step (it lists Fabric API from Modrinth too).
+        auto* reviewer = new QTimer(window);
+        QObject::connect(reviewer, &QTimer::timeout, window, [directory] {
+            if (auto* review = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+                review && QString(review->metaObject()->className()) == "ReviewMessageBox") {
+                review->grab().save(QDir(directory).filePath("41-orbit-review.png"));
+                review->accept();
+            }
+        });
+        reviewer->start(500);
+        QMetaObject::invokeMethod(browser, "confirm", Qt::QueuedConnection);
+
+        const QString expected = version.hash;
+        const QDir mods(instance->modsRoot());
+        auto clock = std::make_shared<QElapsedTimer>();
+        clock->start();
+        auto* poll = new QTimer(window);
+        QObject::connect(poll, &QTimer::timeout, window, [window, mods, expected, clock, poll, reviewer, directory] {
+            const auto orbit = mods.entryList({ "orbit-*.jar" }, QDir::Files);
+            const auto fabricApi = mods.entryList({ "fabric-api*.jar" }, QDir::Files);
+            if ((orbit.isEmpty() || fabricApi.isEmpty()) && clock->elapsed() < 90000) {
+                return;
+            }
+            poll->stop();
+            reviewer->stop();
+            QString actual;
+            if (!orbit.isEmpty()) {
+                QFile jar(mods.filePath(orbit.first()));
+                if (jar.open(QIODevice::ReadOnly)) {
+                    actual = QString::fromLatin1(QCryptographicHash::hash(jar.readAll(), QCryptographicHash::Sha256).toHex());
+                }
+            }
+            window->grab().save(QDir(directory).filePath("42-orbit-installed.png"));
+            const bool passed = !orbit.isEmpty() && !fabricApi.isEmpty() && actual == expected;
+            qInfo() << "Orbit install test: Orbit" << orbit << "Fabric API" << fabricApi << "SHA-256 matches" << (actual == expected)
+                    << (passed ? "PASSED" : "FAILED");
+            QTimer::singleShot(500, window, &QWidget::close);
+        });
+        poll->start(1000);
+    });
+}
+
+}  // namespace
+
 void GalaxyDevTour::start(MainWindow* window, const QString& directory)
 {
     QDir().mkpath(directory);
@@ -550,6 +665,10 @@ void GalaxyDevTour::start(MainWindow* window, const QString& directory)
     }
     if (const auto size = qEnvironmentVariable("GALAXY_DEV_WINDOW_SIZE").split('x'); size.size() == 2) {
         window->resize(size[0].toInt(), size[1].toInt());
+    }
+    if (const auto orbitProfile = qEnvironmentVariable("GALAXY_DEV_ORBIT_PROFILE"); !orbitProfile.isEmpty()) {
+        runOrbitInstallTest(window, directory, orbitProfile);
+        return;
     }
     auto* galaxy = window->m_galaxy;
     auto bodyKey = [galaxy](CelestialBody::Kind kind) {
@@ -566,6 +685,38 @@ void GalaxyDevTour::start(MainWindow* window, const QString& directory)
         target = firstId;  // dev.sh passes the variable even when it is unset
     }
     const bool launchTest = qEnvironmentVariableIntValue("GALAXY_DEV_LAUNCH") == 1;
+
+    // GALAXY_DEV_THEME=orbit: the whole tour with another theme, switched at runtime like Settings › Appearance does.
+    const auto startTheme = APPLICATION->settings()->get("ApplicationTheme").toString();
+    auto applyTheme = [](const QString& id) {
+        APPLICATION->settings()->set("ApplicationTheme", id);
+        APPLICATION->themeManager()->applyCurrentlySelectedTheme();
+    };
+    // GALAXY_DEV_CURSEFORGE_KEY: a CurseForge key entered as in Settings › APIs (none is built in).
+    if (const auto key = qEnvironmentVariable("GALAXY_DEV_CURSEFORGE_KEY"); !key.isEmpty()) {
+        APPLICATION->settings()->set("FlameKeyOverride", key);
+        APPLICATION->globalSettingsClosed();
+    }
+    if (const auto theme = qEnvironmentVariable("GALAXY_DEV_THEME"); !theme.isEmpty()) {
+        applyTheme(theme);
+    }
+    // After a switch, everything the user sees must follow: the look, the chrome, the names and the menus' style.
+    auto checkLook = [window](const QString& expected) {
+        const bool orbit = expected == QLatin1String("orbit");
+        const auto* brand = window->findChild<QLabel*>("galaxyBrand");
+        const auto* topBar = window->findChild<GalaxyTopBar*>();
+        const bool lookOk = GalaxyLook::orbit() == orbit;
+        const bool nameOk = brand && brand->text() == (orbit ? QStringLiteral("Orbit Launcher") : BuildConfig.LAUNCHER_DISPLAYNAME);
+        const bool titleOk = window->windowTitle().contains(GalaxyLook::launcherName());
+        const bool chromeOk = topBar && topBar->styleSheet().contains("Silkscreen") == orbit;
+        const bool styleOk = qApp->styleSheet().contains("#FF2626") == orbit;
+        const bool savedOk = APPLICATION->settings()->get("ApplicationTheme").toString() == expected;
+        qInfo() << "Theme switch test:" << expected << "look" << lookOk << "name" << nameOk << "title" << titleOk << "chrome" << chromeOk
+                << "style" << styleOk << "saved" << savedOk
+                << (lookOk && nameOk && titleOk && chromeOk && styleOk && savedOk ? "PASSED" : "FAILED");
+    };
+    const QString otherTheme = GalaxyLook::orbit() ? QStringLiteral("galaxy") : QStringLiteral("orbit");
+    const QString tourTheme = GalaxyLook::orbit() ? QStringLiteral("orbit") : QStringLiteral("galaxy");
 
     auto before = std::make_shared<QHash<QString, QPointF>>();
     auto steps = std::make_shared<QList<Step>>(QList<Step>{
@@ -860,6 +1011,46 @@ void GalaxyDevTour::start(MainWindow* window, const QString& directory)
               }
           },
           QString() },
+        // Discover's sources: CurseForge finds the project the search names first; Orbit is its own source.
+        { 300,
+          [window, target] {
+              ProjectActions::openDownloadDialog(window, APPLICATION->instances()->getInstanceById(target), ProjectActions::Category::Mods,
+                                                 "sodium");
+          },
+          QString() },
+        { 3000, [window] { searchSource(window, "curseforge", "sodium"); }, QString() },
+        { 6000,
+          [window, directory] {
+              auto* browser = discoverBrowser(window);
+              auto first = browser ? firstResult(browser->selectedPage()) : nullptr;
+              window->grab().save(QDir(directory).filePath("37-discover-curseforge.png"));
+              if (!(APPLICATION->capabilities() & Application::SupportsFlame)) {
+                  qInfo() << "CurseForge search test: skipped, no CurseForge key (set GALAXY_DEV_CURSEFORGE_KEY)";
+              } else {
+                  qInfo() << "CurseForge search test: first result for \"sodium\" is" << (first ? first->name : QString("nothing"))
+                          << (first && first->name == "Sodium" ? "PASSED" : "FAILED");
+              }
+              searchSource(window, "orbit", QString());
+          },
+          QString() },
+        { 4000,
+          [window, directory] {
+              auto* browser = discoverBrowser(window);
+              auto first = browser ? firstResult(browser->selectedPage()) : nullptr;
+              if (auto* page = browser ? browser->selectedPage() : nullptr; page && page->getModel()->rowCount({}) > 0) {
+                  page->findChild<QListView*>("packView")->setCurrentIndex(page->getModel()->index(0, 0));
+              }
+              QApplication::processEvents();
+              window->grab().save(QDir(directory).filePath("38-discover-orbit.png"));
+              qInfo() << "Orbit source test: shows" << (first ? first->name : QString("nothing"))
+                      << (first && first->name == "Orbit" && first->provider == ModPlatform::ResourceProvider::ORBIT ? "PASSED" : "FAILED");
+              for (auto* top : window->findChildren<QWidget*>("galaxyDiscoverWindow")) {
+                  if (top->isVisible()) {
+                      top->close();
+                  }
+              }
+          },
+          QString() },
         { 100,
           [galaxy, target] {
               hover(galaxy, QPointF(5, 5));
@@ -1018,6 +1209,32 @@ void GalaxyDevTour::start(MainWindow* window, const QString& directory)
               }
           },
           "19b-notifications-sliding-out" },
+        // Switching themes while the launcher runs, there and back, inside a profile and in the galaxy.
+        { 300, [applyTheme, otherTheme] { applyTheme(otherTheme); }, QString() },
+        { 500, [checkLook, otherTheme] { checkLook(otherTheme); }, "20-theme-switched" },
+        { 100, [galaxy, target] { galaxy->enterSystem(target); }, QString() },
+        { 1500, [] {}, "20a-theme-switched-system" },
+        { 200,
+          [] {
+              Notifications::Notification note;
+              note.kind = Notifications::Kind::Success;
+              note.title = QStringLiteral("Sodium updated");
+              note.text = QStringLiteral("0.6.13 is installed in this profile.");
+              Notifications::instance()->post(note);
+          },
+          QString() },
+        { 600, [] {}, "20b-theme-switched-notification" },
+        { 100, [galaxy] { galaxy->showGalaxy(); }, QString() },
+        { 1300, [applyTheme, tourTheme] { applyTheme(tourTheme); }, QString() },
+        { 500, [checkLook, tourTheme] { checkLook(tourTheme); }, "21-theme-switched-back" },
+        // Back to the data's own theme, unless a launch with the tour's theme follows.
+        { 0,
+          [applyTheme, startTheme, launchTest, tourTheme] {
+              applyTheme(launchTest ? tourTheme : (startTheme.isEmpty() ? QStringLiteral("galaxy") : startTheme));
+          },
+          QString() },
+        // The launch test clicks the profile's sun: end inside its system, as the tour did before the theme steps.
+        { 1500, [galaxy, target] { galaxy->enterSystem(target); }, QString() },
     });
     auto index = std::make_shared<int>(0);
     auto runner = std::make_shared<std::function<void()>>();
@@ -1032,6 +1249,10 @@ void GalaxyDevTour::start(MainWindow* window, const QString& directory)
             return;
         }
         const auto step = steps->at((*index)++);
+        if (auto* modal = QApplication::activeModalWidget()) {
+            // Something the tour did not open is waiting for an answer: name it, the tour may be stuck behind it.
+            qWarning() << "Developer tour: a dialog is open before step" << *index << modal->metaObject()->className() << modal->windowTitle();
+        }
         step.action();
         QTimer::singleShot(std::max(step.delay, 16), window, [window, step, runner, directory] {
             if (!step.shot.isEmpty()) {

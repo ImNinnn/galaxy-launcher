@@ -74,7 +74,9 @@ case "$cmd" in
         envs=(--env=QT_QPA_PLATFORM=offscreen "--env=GALAXYLAUNCHER_DATA_DIR=$data" "--env=GALAXY_DEV_SNAPSHOTS=$out"
               "--env=GALAXY_DEV_WINDOW_SIZE=$size" "--env=QT_LOGGING_RULES=${QT_LOGGING_RULES:-}" "--env=GALAXY_DEV_PROFILE=${GALAXY_DEV_PROFILE:-}"
               "--env=GALAXY_DEV_PASSER=${GALAXY_DEV_PASSER:-}" "--env=GALAXY_DEV_APPLY_UPDATES=${GALAXY_DEV_APPLY_UPDATES:-}"
-              "--env=GALAXY_DEV_LOGIN_TEST=${GALAXY_DEV_LOGIN_TEST:-}" "--env=GALAXY_DEV_FAKE_VERSION=${GALAXY_DEV_FAKE_VERSION:-}")
+              "--env=GALAXY_DEV_LOGIN_TEST=${GALAXY_DEV_LOGIN_TEST:-}" "--env=GALAXY_DEV_FAKE_VERSION=${GALAXY_DEV_FAKE_VERSION:-}"
+              "--env=GALAXY_DEV_THEME=${GALAXY_DEV_THEME:-}" "--env=GALAXY_DEV_ORBIT_PROFILE=${GALAXY_DEV_ORBIT_PROFILE:-}"
+              "--env=GALAXY_DEV_CURSEFORGE_KEY=${GALAXY_DEV_CURSEFORGE_KEY:-}")
         if [ "${INSTALLED:-0}" = 1 ]; then
             # The installed app, with exactly the manifest's permissions plus access to the two test folders.
             flatpak run --user "${nodiscord[@]}" "--filesystem=$data" "--filesystem=$out" "$network" "${envs[@]}" "$APP_ID"
@@ -88,7 +90,9 @@ case "$cmd" in
         out="$(realpath -m "$2")"
         mkdir -p "$out"
         envs=(--env=QT_QPA_PLATFORM=offscreen "--env=GALAXYLAUNCHER_DATA_DIR=$data" "--env=GALAXY_DEV_SNAPSHOTS=$out"
-              "--env=GALAXY_DEV_PROFILE=$3" --env=GALAXY_DEV_LAUNCH=1 "--env=GALAXY_DEV_LAUNCH_VIA=${GALAXY_DEV_LAUNCH_VIA:-}")
+              "--env=GALAXY_DEV_PROFILE=$3" --env=GALAXY_DEV_LAUNCH=1 "--env=GALAXY_DEV_LAUNCH_VIA=${GALAXY_DEV_LAUNCH_VIA:-}"
+              "--env=GALAXY_DEV_THEME=${GALAXY_DEV_THEME:-}" "--env=GALAXY_DEV_ORBIT_PROFILE=${GALAXY_DEV_ORBIT_PROFILE:-}"
+              "--env=GALAXY_DEV_CURSEFORGE_KEY=${GALAXY_DEV_CURSEFORGE_KEY:-}")
         if [ "${INSTALLED:-0}" = 1 ]; then
             command=(flatpak run --user "${nodiscord[@]}" "--filesystem=$data" "--filesystem=$out" "${envs[@]}" "$APP_ID")
         else

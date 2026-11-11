@@ -41,6 +41,7 @@ ModPlatform::ResourceProvider next(ModPlatform::ResourceProvider p)
         case ModPlatform::ResourceProvider::MODRINTH:
             return ModPlatform::ResourceProvider::FLAME;
         case ModPlatform::ResourceProvider::FLAME:
+        case ModPlatform::ResourceProvider::ORBIT:  // never looked up: Orbit's files carry no metadata
             return ModPlatform::ResourceProvider::MODRINTH;
     }
 
@@ -322,6 +323,8 @@ auto ResourceUpdateDialog::ensureMetadata() -> bool
             case ModPlatform::ResourceProvider::FLAME:
                 flameTmp.push_back(resource);
                 break;
+            case ModPlatform::ResourceProvider::ORBIT:
+                break;  // Orbit updates itself
         }
     };
 
@@ -433,6 +436,8 @@ void ResourceUpdateDialog::onMetadataEnsured(Resource* resource)
                 m_flameToUpdate.push_back(resource);
             }
             break;
+        case ModPlatform::ResourceProvider::ORBIT:
+            break;  // Orbit updates itself
     }
 }
 

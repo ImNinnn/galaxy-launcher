@@ -16,10 +16,13 @@ and data packs are moons, and shader packs are rings. Everything you see is read
 every action (installing, updating, launching, accounts) goes through Prism Launcher's own, proven code.
 
 * **Launch with style**: the system collapses into its sun, which explodes into a nebula while you play.
-* **Discover**: browse and install mods, resource packs, shader packs and data packs from Modrinth.
+* **Discover**: browse and install mods, resource packs, shader packs and data packs from Modrinth and CurseForge
+  (with your CurseForge API key in Settings › APIs), and the Orbit mod straight from Orbit's own server.
 * **Updates at a glance**: outdated content is marked in red; update one project or the whole profile at once.
 * **A classic list view** whenever you want it, with the same data.
-* **Discord Rich Presence**, a space-purple theme, and all of Prism Launcher's features and settings.
+* **Two looks**: Galaxy's deep space purple, or **Orbit** (Settings › Appearance › Theme), Orbit Cosmetics' grey,
+  black and red in pixel art: pixel planets, moons, rings and black hole on Orbit's grid.
+* **Discord Rich Presence**, and all of Prism Launcher's features and settings.
 
 ## Install
 
@@ -68,8 +71,9 @@ affiliated with or endorsed by the Prism Launcher project, Mojang or Microsoft.
 Differences from Prism Launcher include:
 
 * the galaxy view, the Discover window, update markers and the updates window, the launch nebula, Discord Rich
-  Presence and the space theme;
-* Modrinth only: CurseForge is not supported;
+  Presence, the space theme and the Orbit theme;
+* its own CurseForge search (results ranked by how well their name matches, never modpacks among mods) and an Orbit
+  source;
 * its own name, icon and data folder, so it can be installed next to Prism Launcher.
 
 ## Building from source
@@ -87,6 +91,8 @@ Builds sign in with Galaxy Launcher's own Microsoft application. If you publish 
 * **Galaxy Launcher**: ImNinnn. Much of its code and documentation was written by Claude, an AI model made by
   Anthropic, under ImNinnn's direction and review.
 * **Prism Launcher, MultiMC and their contributors**: everything underneath. See the credits in *Help › About*.
+* **Orbit theme**: the icons and app icon of Orbit Cosmetics (ImNinnn); the Silkscreen font by The Silkscreen Project
+  Authors (SIL Open Font License, see [COPYING.md](COPYING.md)).
 
 ## License
 

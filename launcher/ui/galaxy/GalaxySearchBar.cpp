@@ -25,6 +25,7 @@
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QToolButton>
+#include "GalaxyLook.h"
 
 GalaxySearchBar::GalaxySearchBar(QWidget* parent) : QWidget(parent)
 {
@@ -48,14 +49,22 @@ GalaxySearchBar::GalaxySearchBar(QWidget* parent) : QWidget(parent)
     m_add = new QPushButton(tr("Add content"), this);
     m_add->setObjectName("galaxyPrimaryButton");
     m_add->setIcon(QIcon::fromTheme("new"));
-    m_add->setToolTip(tr("Browse Modrinth and install mods, resource packs, shaders and data packs"));
+    m_add->setToolTip(tr("Browse Modrinth and CurseForge and install mods, resource packs, shaders and data packs"));
     m_add->setAccessibleName(tr("Add content"));
 
     m_updates = new QToolButton(this);
     m_updates->setObjectName("galaxyUpdatesButton");
     m_updates->setIcon(UpdatesDialog::icon());
     m_updates->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    m_updates->setStyleSheet(QStringLiteral("QToolButton#galaxyUpdatesButton { color: #F85149; font-weight: 600; }"));
+    GalaxyLook::bindIcon(m_add, "plus", Qt::white);
+    GalaxyLook::bindIcon(m_updates, "update", GalaxyLook::Orbit::Red);
+    GalaxyLook::onChange(m_updates, [this] {
+        m_updates->setStyleSheet(QStringLiteral("QToolButton#galaxyUpdatesButton { color: %1; font-weight: 600; }")
+                                     .arg(GalaxyLook::orbit() ? "#FF6E6E" : "#F85149"));
+        if (m_viewToggle) {
+            setListView(m_list);
+        }
+    });
     m_updates->hide();
 
     m_viewToggle = new QToolButton(this);
@@ -139,7 +148,7 @@ void GalaxySearchBar::setListView(bool list)
     m_viewToggle->setToolButtonStyle(m_compact ? Qt::ToolButtonIconOnly : Qt::ToolButtonTextBesideIcon);
     m_viewToggle->setAccessibleName(list ? tr("Galaxy view") : tr("List view"));
     m_viewToggle->setText(list ? tr("Galaxy view") : tr("List view"));
-    m_viewToggle->setIcon(QIcon::fromTheme(list ? "viewfolder" : "notes"));
+    m_viewToggle->setIcon(GalaxyLook::icon(QIcon::fromTheme(list ? "viewfolder" : "notes"), list ? "orbit" : "list"));
     m_viewToggle->setToolTip(list ? tr("Switch to the interactive galaxy") : tr("Switch to a conventional list of profiles and content"));
     // The list view has its own per-page filters.
     m_edit->setVisible(!list);

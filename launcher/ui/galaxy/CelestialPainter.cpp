@@ -25,6 +25,9 @@
 #include <QRandomGenerator>
 #include <QtMath>
 
+#include "GalaxyLook.h"
+#include "OrbitPainter.h"
+
 namespace CelestialPainter {
 
 namespace {
@@ -238,6 +241,10 @@ SurfaceStyle baseGameStyle()
 
 void drawSphere(QPainter& p, QPointF c, qreal r, const SurfaceStyle& style, QPointF light, qreal lightFacing, int quality, qreal opacity)
 {
+    if (GalaxyLook::orbit()) {
+        OrbitPainter::drawSphere(p, c, r, style, light, lightFacing, quality, opacity);
+        return;
+    }
     if (r <= 0.2 || opacity <= 0.001) {
         return;
     }
@@ -293,6 +300,10 @@ void drawSphere(QPainter& p, QPointF c, qreal r, const SurfaceStyle& style, QPoi
 
 void drawSun(QPainter& p, QPointF c, qreal r, const QColor& color, qreal intensity, int quality, qreal opacity)
 {
+    if (GalaxyLook::orbit()) {
+        OrbitPainter::drawSun(p, c, r, color, intensity, quality, opacity);
+        return;
+    }
     if (r <= 0.2 || opacity <= 0.001) {
         return;
     }
@@ -340,6 +351,9 @@ void drawSun(QPainter& p, QPointF c, qreal r, const QColor& color, qreal intensi
 
 void drawShadow(QPainter& p, QPointF c, qreal rx, qreal ry, qreal opacity)
 {
+    if (GalaxyLook::orbit()) {
+        return;  // Orbit draws no shadows
+    }
     if (rx <= 0.5 || ry <= 0.3 || opacity <= 0.001) {
         return;
     }
@@ -367,6 +381,10 @@ void drawRingHalf(QPainter& p,
                   qreal opacity,
                   bool dashed)
 {
+    if (GalaxyLook::orbit()) {
+        OrbitPainter::drawRingHalf(p, c, rx, ry, width, rotationDeg, color, front, quality, opacity, dashed);
+        return;
+    }
     if (rx <= 0.5 || opacity <= 0.001) {
         return;
     }
@@ -404,6 +422,10 @@ void drawRingHalf(QPainter& p,
 
 void drawBlackHole(QPainter& p, QPointF c, qreal r, qreal swirl, int quality, qreal opacity)
 {
+    if (GalaxyLook::orbit()) {
+        OrbitPainter::drawBlackHole(p, c, r, swirl, quality, opacity);
+        return;
+    }
     if (r <= 0.5 || opacity <= 0.001) {
         return;
     }
@@ -478,6 +500,10 @@ void drawBlackHole(QPainter& p, QPointF c, qreal r, qreal swirl, int quality, qr
 
 void drawNebula(QPainter& p, QPointF c, qreal radius, const QColor& color, qreal time, std::uint32_t seed, int quality, qreal opacity)
 {
+    if (GalaxyLook::orbit()) {
+        OrbitPainter::drawNebula(p, c, radius, color, time, seed, quality, opacity);
+        return;
+    }
     if (radius <= 1 || opacity <= 0.001) {
         return;
     }
@@ -523,6 +549,10 @@ void drawNebula(QPainter& p, QPointF c, qreal radius, const QColor& color, qreal
 
 void drawSparkle(QPainter& p, QPointF c, qreal size, const QColor& color, qreal twinkle, qreal opacity)
 {
+    if (GalaxyLook::orbit()) {
+        OrbitPainter::drawSparkle(p, c, size, color, twinkle, opacity);
+        return;
+    }
     if (opacity <= 0.001) {
         return;
     }
@@ -547,6 +577,10 @@ void drawSparkle(QPainter& p, QPointF c, qreal size, const QColor& color, qreal 
 
 void drawOrbit(QPainter& p, QPointF c, qreal rx, qreal ry, const QColor& color, qreal opacity)
 {
+    if (GalaxyLook::orbit()) {
+        OrbitPainter::drawOrbit(p, c, rx, ry, color, opacity);
+        return;
+    }
     if (rx <= 1 || opacity <= 0.001) {
         return;
     }
@@ -561,6 +595,12 @@ void drawOrbit(QPainter& p, QPointF c, qreal rx, qreal ry, const QColor& color, 
 
 QPixmap renderStarfield(const QSize& size, qreal dpr, int quality)
 {
+    if (GalaxyLook::orbit()) {
+        QPixmap pixmap = OrbitPainter::renderSkyBase(size, 0, dpr);
+        QPainter p(&pixmap);
+        p.drawTiledPixmap(QRectF(QPointF(0, 0), QSizeF(size)), OrbitPainter::renderGridTile(OrbitPainter::GridTileSize, 0, dpr, quality));
+        return pixmap;
+    }
     QPixmap pixmap(size * dpr);
     pixmap.setDevicePixelRatio(dpr);
     QPainter p(&pixmap);
@@ -618,6 +658,9 @@ QPixmap renderStarfield(const QSize& size, qreal dpr, int quality)
 
 QPixmap renderSkyBase(const QSize& size, int margin, qreal dpr, int quality)
 {
+    if (GalaxyLook::orbit()) {
+        return OrbitPainter::renderSkyBase(size, margin, dpr);
+    }
     const QSize full = size + QSize(2 * margin, 2 * margin);
     QPixmap pixmap(full * dpr);
     pixmap.setDevicePixelRatio(dpr);
@@ -652,6 +695,9 @@ QPixmap renderSkyBase(const QSize& size, int margin, qreal dpr, int quality)
 
 QPixmap renderStarTile(int tileSize, int layer, qreal dpr, int quality)
 {
+    if (GalaxyLook::orbit()) {
+        return OrbitPainter::renderGridTile(tileSize, layer, dpr, quality);
+    }
     QPixmap pixmap(QSize(tileSize, tileSize) * dpr);
     pixmap.setDevicePixelRatio(dpr);
     pixmap.fill(Qt::transparent);

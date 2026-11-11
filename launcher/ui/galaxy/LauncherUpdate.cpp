@@ -41,6 +41,7 @@
 #include "StringUtils.h"
 #include "Version.h"
 #include "settings/SettingsObject.h"
+#include "GalaxyLook.h"
 
 namespace {
 QString withoutPrefix(QString tag)
@@ -103,11 +104,11 @@ void LauncherUpdate::check()
 void LauncherUpdate::show(QWidget* parent, const Release& release)
 {
     QDialog dialog(parent);
-    dialog.setWindowTitle(QObject::tr("Galaxy Launcher update"));
+    dialog.setWindowTitle(QObject::tr("%1 update").arg(GalaxyLook::launcherName()));
     dialog.resize(560, 480);
     auto* layout = new QVBoxLayout(&dialog);
 
-    auto* title = new QLabel(QObject::tr("<b>Galaxy Launcher %1 is available.</b> You have %2.").arg(release.version, currentVersion()), &dialog);
+    auto* title = new QLabel(QObject::tr("<b>%1 %2 is available.</b> You have %3.").arg(GalaxyLook::launcherName(), release.version, currentVersion()), &dialog);
     layout->addWidget(title);
 
     auto* notes = new QTextBrowser(&dialog);
@@ -133,8 +134,9 @@ void LauncherUpdate::show(QWidget* parent, const Release& release)
     // Linux: the Flatpak cannot update itself; the installer script updates it in place.
     const QString command = QStringLiteral("bash -c \"$(curl -fsSL https://raw.githubusercontent.com/%1/main/install-linux.sh)\"")
                                 .arg(BuildConfig.GALAXY_RELEASES_REPO);
-    auto* how = new QLabel(QObject::tr("To update, close Galaxy Launcher and run this in a terminal. Your profiles, accounts and settings "
-                                       "are kept."),
+    auto* how = new QLabel(QObject::tr("To update, close %1 and run this in a terminal. Your profiles, accounts and settings "
+                                       "are kept.")
+                               .arg(GalaxyLook::launcherName()),
                            &dialog);
     how->setWordWrap(true);
     layout->addWidget(how);

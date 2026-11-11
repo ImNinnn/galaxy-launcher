@@ -25,6 +25,7 @@
 #include "net/NetJob.h"
 
 #include "ui/widgets/ProjectItem.h"
+#include "ui/galaxy/GalaxyLook.h"
 
 namespace ResourceDownload {
 
@@ -491,7 +492,7 @@ void ResourceModel::searchRequestFailed([[maybe_unused]] const QString& reason, 
         case 409:
             // 409 Gone, notify user to update
             QMessageBox::critical(nullptr, tr("Error"),
-                                  QString("%1").arg(tr("API version too old!\nPlease update %1!").arg(BuildConfig.LAUNCHER_DISPLAYNAME)));
+                                  QString("%1").arg(tr("API version too old!\nPlease update %1!").arg(GalaxyLook::launcherName())));
             break;
     }
 

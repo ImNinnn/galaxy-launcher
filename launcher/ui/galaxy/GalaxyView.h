@@ -277,6 +277,14 @@ class GalaxyView : public QWidget {
     void paintTooltip(QPainter& p);
     void paintStatus(QPainter& p);
     void paintLabel(QPainter& p, const QPointF& anchor, const QString& text, qreal opacity, bool emphasized);
+    /** Restyles the view's own widgets and drops cached sprites after the look changed (Galaxy or Orbit). */
+    void applyLook();
+    /** Side of one background tile: stars with Galaxy, the grid with Orbit. */
+    int tileSize() const;
+    /** Orbit's shooting star: a short trail of square pixels now and then. */
+    void paintComet(QPainter& p);
+    /** A tooltip-like panel: rounded and purple with Galaxy, square with a red bar on the left with Orbit. */
+    void paintPanel(QPainter& p, const QRectF& rect, qreal radius, int alpha, bool outlined);
     int quality() const;
     /** Draws a lit sphere through a sprite cache keyed by style, size and quantized lighting. */
     void drawCachedSphere(QPainter& p,

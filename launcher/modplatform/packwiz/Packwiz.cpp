@@ -192,6 +192,9 @@ void V1::updateModIndex(const QDir& indexDir, Mod& mod)
                 { "version", mod.version().toString().toStdString() },
             };
             break;
+        case (ModPlatform::ResourceProvider::ORBIT):
+            qCritical() << QString("Did not write file %1: Orbit's files carry no metadata").arg(normalizedFname);
+            return;
     }
 
     toml::array loaders;

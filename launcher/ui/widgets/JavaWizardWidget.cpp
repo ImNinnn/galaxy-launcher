@@ -30,6 +30,7 @@
 #include "Application.h"
 #include "BuildConfig.h"
 #include "HardwareInfo.h"
+#include "ui/galaxy/GalaxyLook.h"
 
 JavaWizardWidget::JavaWizardWidget(QWidget* parent)
     : QWidget(parent), m_availableMemory(HardwareInfo::totalRamMiB()), m_memoryTimer(new QTimer(this))
@@ -237,7 +238,7 @@ JavaWizardWidget::ValidationStatus JavaWizardWidget::validate()
                                     "Do you wish to proceed?"
                                     "\n\n"
                                     "You can change the Java version in the settings later.\n")
-                                     .arg(BuildConfig.LAUNCHER_DISPLAYNAME),
+                                     .arg(GalaxyLook::launcherName()),
                                  QMessageBox::Warning, QMessageBox::Yes | QMessageBox::No | QMessageBox::Help, QMessageBox::NoButton)
                                  ->exec();
 
@@ -248,7 +249,7 @@ JavaWizardWidget::ValidationStatus JavaWizardWidget::validate()
                                                              "Do you wish to proceed without a functional version of Java?"
                                                              "\n\n"
                                                              "You can change the Java version in the settings later.\n")
-                                                              .arg(BuildConfig.LAUNCHER_DISPLAYNAME),
+                                                              .arg(GalaxyLook::launcherName()),
                                                           QMessageBox::Warning, QMessageBox::Yes | QMessageBox::No | QMessageBox::Help,
                                                           QMessageBox::NoButton)
                                  ->exec();

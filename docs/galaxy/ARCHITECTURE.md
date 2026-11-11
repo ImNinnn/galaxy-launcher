@@ -12,7 +12,7 @@ describes what was added and how it connects to Prism.
 | Profiles | `InstanceList` (model of `MinecraftInstance`), `InstanceProxyModel` for sorting |
 | Installed content | `ResourceFolderModel` subclasses per instance: `loaderModList()`, `coreModList()`, `resourcePackList()`, `texturePackList()`, `shaderPackList()`, `dataPackList()` |
 | Source metadata | Packwiz-style `.index/*.pw.toml` files read into `Resource::metadata()` (provider + project ID) |
-| Search / install / change version | `ResourceDownload::ResourceDownloadDialog` (Modrinth pages; CurseForge is disabled in Galaxy Launcher, dependency resolution, version selection) |
+| Search / install / change version | `ResourceDownload::ResourceDownloadDialog` (Modrinth, CurseForge and Orbit pages, dependency resolution, version selection) |
 | Launch | `Application::launch()` → `LaunchController` (account selection, Java, JVM args, libraries, assets) |
 | Accounts / settings | `AccountList`, global settings dialog (`GenericPageProvider`) |
 | Theming | `ThemeManager` + `ITheme` |
@@ -43,6 +43,9 @@ All new code lives in `launcher/ui/galaxy/` unless noted.
 | `ProfileContentsPanel` | List view: Prism's own Mods / Resource Packs / Shader Packs / Data Packs pages for the selected profile. |
 | `GalaxySettings` | Setting keys; registered in `Application.cpp`. |
 | `ui/themes/GalaxyTheme` | The default "space purple" theme (other Prism themes remain selectable). |
+| `ui/themes/OrbitTheme` | The Orbit theme: Orbit Cosmetics' grey, black and red, for dialogs and pages (colors and square shapes only), plus the main window's Orbit chrome. |
+| `GalaxyLook` | Which look the main window has (Galaxy, or Orbit's pixel art), set by `ThemeManager::setApplicationTheme`; its `changed()` signal makes every Galaxy widget restyle itself. Also Orbit's colors, its pixel icons (9×9 glyphs scaled by whole pixels, tinted per icon mode), the Silkscreen font and the launcher name shown to the user. |
+| `OrbitPainter` | `CelestialPainter`'s objects as pixel art; `CelestialPainter` forwards to it while the Orbit look is on. |
 | `ui/pages/global/GalaxyPage` | Settings > Galaxy. |
 
 ### Changes to existing Prism code (kept small)
@@ -58,9 +61,11 @@ All new code lives in `launcher/ui/galaxy/` unless noted.
   checks or locks), adds *Update* and *Update All*, and right-clicking one project shows `ProjectActions`' menu.
 * `BaseInstance` registers the cosmetic `GalaxySunColor` setting.
 * `NewInstanceDialog::selectPage()` so "Import profile" opens on the import page.
-* `Application::updateCapabilities()` never enables CurseForge; `ResourceUpdateDialog` skips CurseForge resources
-  and never falls back to CurseForge; the CurseForge key field, the CurseForge export and the `curseforge://` handler
-  are hidden or removed.
+* CurseForge: `CurseForgeAPI` (a subclass of Prism's `FlameAPI`, which is no longer `final`) replaces the search
+  and the sortings; the CurseForge pages use it. The CurseForge export and the `curseforge://` handler stay hidden.
+* Orbit source: `ModPlatform::ResourceProvider::ORBIT`, `OrbitAPI` and `ui/pages/modplatform/orbit`. Orbit's files
+  get no update metadata; its dependency on Fabric API resolves through Modrinth (`GetModDependenciesTask`), and
+  the review step no longer crashes on a dependency without a "required by" entry.
 * `MSAStep` always signs in through the browser with a local redirect page: `QOAuthHttpServerReplyHandler` listens on
   127.0.0.1 only, advertises `http://localhost:<port>/` (the redirect URI registered for Galaxy Launcher's Entra
   application) and serves `resources/galaxy/login-callback.html`, which shows success or Microsoft's error.
@@ -157,6 +162,64 @@ ResourceFolderModels ──signals──▶ SystemContent::rebuild() (debounced 
   problems show a "!" badge; selection uses an outline plus a side bar in the sidebar; running profiles have a pulsing
   ring plus a "Running" text badge; search matches get an outline and a label.
 
+## Mod sources
+
+Discover's browser lists three sources for mods (two for packs and shaders):
+
+* **Modrinth**, as in Prism Launcher.
+* **CurseForge**, with Galaxy Launcher's own search (`modplatform/flame/CurseForgeAPI`). CurseForge's API has no
+  relevance sort, and Prism asked for "Featured" results with the search text unencoded, so the project you named
+  could be missing or buried under modpacks and add-ons. Now the text is encoded, 50 results are asked for by
+  popularity, only the requested kind of project is kept, and "Sort by Relevance" (the default) orders them by how
+  well the name matches: the exact name or slug, then a word of the name or its initials ("JEI"), then names
+  starting with the text, then names containing all of its words; popularity breaks ties. Versions, files,
+  dependencies and update checks are Prism's (`FlameAPI`, `FlameCheckUpdate`); Galaxy's update markers include
+  CurseForge files. No key is built in: CurseForge appears once the user enters one in Settings › APIs.
+* **Orbit** (mods only), from Orbit Cosmetics' server (`modplatform/orbit/OrbitAPI`). Orbit updates itself, so mod
+  sites cannot list it. `GET /v1/mod/update?target=<year.drop>&version=0.0.0` returns the newest release for the
+  profile's Minecraft version (26.3.1 asks for 26.3) with its download path and SHA-256; the search result carries
+  it as the project's one version, the download is checked against the SHA-256, and Fabric API is added from
+  Modrinth. The page explains when there is no release for the profile's version or the profile is not Fabric.
+
+## The Orbit theme
+
+Settings › Appearance › Theme › **Orbit** turns the launcher into Orbit Cosmetics' identity (spec:
+`ORBIT_THEME.md` in the Orbit project). It is an ordinary `ITheme` (id `orbit`), saved in `ApplicationTheme` like
+every theme, so it survives restarts; Galaxy stays the default. Switching applies at once, without a restart.
+
+* **Two layers.** Prism's dialogs and pages (settings, profile pages, Discover's lists, message boxes) only get the
+  palette and `OrbitTheme::appStyleSheet()`: grey, black and red, square corners, bevelled buttons, red checks,
+  the system font, no pixel art. The main window's own chrome and the galaxy view become pixel art.
+* **How the main window follows.** `ThemeManager::setApplicationTheme` calls `GalaxyLook::setTheme(id)`; when the
+  look changes, `GalaxyLook::notifier()->changed()` fires. Widgets register with `GalaxyLook::onChange` (restyle now
+  and on every change) and `GalaxyLook::bindIcon` (an action's or button's Galaxy icon and its Orbit icon).
+  `GalaxyTheme::chromeStyleSheet()` returns `OrbitTheme::chromeStyleSheet()` with the Orbit look. The galaxy view
+  drops its sprite and background caches (the sphere cache key also includes the look).
+* **Pixel art** (`OrbitPainter`): every object is rasterized on a grid of square cells and drawn scaled up without
+  smoothing. Spheres are blocky discs like Orbit's icon (about 16 cells across), lit in four tones with ordered
+  dithering, with bands, craters or continents in cells. Suns have a dithered pixel corona and four rays. Rings are
+  bands of square pixels along the tilted ellipse, after the Gravity Studios logo (a darker outer edge, a light
+  lane, the far half dimmer); they are cached per shape. The black hole is a black disc with a white photon ring
+  and a red accretion disk whose colors step round. Nebulae are dithered clouds; sparkles are plus shapes; orbit
+  paths are dotted; there are no shadows or glows.
+* **Background**: Orbit's flat `#141416` with two grid layers moving at different speeds for depth: the 20 px grid
+  (white at 5 %) and, nearer, small crosses on a 120 px grid. Now and then a short trail of square pixels crosses it.
+* **Selection**: a solar system's selection and hover are rectangles on the plane (red with corner brackets when
+  selected, dashed grey on hover); planets keep their outline on hover; rings keep theirs (lighter). Planet outlines (hover, search match, update, disabled, running) are rings of square pixels on the planet's own grid (`OrbitPainter::drawOutline`), dashed for disabled content.
+  Labels, tooltips and categories are square panels; the selected sidebar row has Orbit's 2 px red bar.
+* **Icons and fonts**: `resources/orbit/` holds the Orbit icons the launcher uses (white 9×9, from Orbit
+  Cosmetics), Orbit's app icon and the Silkscreen font (SIL Open Font License, `Silkscreen-OFL.txt`). Glyphs Orbit
+  has no icon for (stop, menu, minus, window buttons, help, list, tag, warning, info, fit) are drawn on the same
+  9×9 grid in `GalaxyLook.cpp`. Icons show at whole multiples (18 px in the chrome).
+* **Navigation buttons** follow the Orbit mod's update window: minimize is a short line, close turns `#C21E1E`
+  when hovered. Notifications follow its social popups: a bevelled panel, a 2 px bar in the kind's color (red,
+  green, yellow), the kind's pixel icon, a white title and grey text.
+* **Name**: with Orbit, the user sees "Orbit Launcher": the top bar, window titles (`applicationDisplayName`),
+  the update dialogs (About stays Galaxy Launcher's), the help menu, settings texts, desktop notifications and Discord Rich Presence
+  (its hover text and large image; the Discord application itself keeps its name). Only text shown to the user
+  changes (`GalaxyLook::launcherName()`); the application, its ID, data folder, packages, logs and paths stay
+  Galaxy Launcher.
+
 ## Black hole, galactic rotation and the nebula
 
 * Systems are laid out on the sunflower spiral, pushed out by `BlackHoleClearance` so the black hole at the origin has
@@ -245,7 +308,12 @@ navigates, hovers, opens and dismisses dialogs, and plays the cosmetic animation
 (`./dev.sh launch-test`) it then launches the profile for real by clicking its sun, answers Prism's prompts for a
 demo launch, waits for the game process, prints evidence from the game log, and stops the game. The game runs on a
 private `kwin_wayland --virtual` compositor, not on the desktop. `INSTALLED=1` runs both against the installed
-Flatpak instead of the development build.
+Flatpak instead of the development build. `GALAXY_DEV_THEME=orbit` runs the tour (and the launch) with the Orbit
+theme. Every tour ends by switching to the other theme and back at runtime and checks the look, the chrome, the
+launcher name, the window title, the menus' style sheet and the saved setting ("Theme switch test"). The tour
+also checks that CurseForge's first result for "sodium" is Sodium and that the Orbit source shows Orbit.
+`GALAXY_DEV_ORBIT_PROFILE=<id>` (a Fabric profile for Minecraft 26.x) instead installs Orbit through Discover and
+checks the jar's SHA-256 and that Fabric API came with it.
 
 ## Known limitations
 

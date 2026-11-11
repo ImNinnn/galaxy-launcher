@@ -489,6 +489,10 @@ set(API_SOURCES
 
     modplatform/flame/FlameAPI.h
     modplatform/flame/FlameAPI.cpp
+    modplatform/flame/CurseForgeAPI.h
+    modplatform/flame/CurseForgeAPI.cpp
+    modplatform/orbit/OrbitAPI.h
+    modplatform/orbit/OrbitAPI.cpp
     modplatform/flame/FlamePackIndex.h
     modplatform/flame/FlamePackIndex.cpp
     modplatform/modrinth/ModrinthAPI.h
@@ -827,6 +831,10 @@ SET(LAUNCHER_SOURCES
     ui/galaxy/GalaxyDevTour.cpp
     ui/galaxy/GalaxyLayout.h
     ui/galaxy/GalaxyLayout.cpp
+    ui/galaxy/GalaxyLook.h
+    ui/galaxy/GalaxyLook.cpp
+    ui/galaxy/OrbitPainter.h
+    ui/galaxy/OrbitPainter.cpp
     ui/galaxy/GalaxySearchBar.h
     ui/galaxy/GalaxySearchBar.cpp
     ui/galaxy/GalaxySettings.h
@@ -907,6 +915,8 @@ SET(LAUNCHER_SOURCES
     ui/themes/DarkTheme.h
     ui/themes/GalaxyTheme.cpp
     ui/themes/GalaxyTheme.h
+    ui/themes/OrbitTheme.cpp
+    ui/themes/OrbitTheme.h
     ui/themes/ITheme.cpp
     ui/themes/ITheme.h
     ui/themes/HintOverrideProxyStyle.cpp
@@ -1062,6 +1072,8 @@ SET(LAUNCHER_SOURCES
     ui/pages/modplatform/flame/FlameResourceModels.cpp
     ui/pages/modplatform/flame/FlameResourceModels.h
     ui/pages/modplatform/flame/FlameResourcePages.cpp
+    ui/pages/modplatform/orbit/OrbitResourcePages.h
+    ui/pages/modplatform/orbit/OrbitResourcePages.cpp
     ui/pages/modplatform/flame/FlameResourcePages.h
 
     ui/pages/modplatform/modrinth/ModrinthPage.cpp
@@ -1259,6 +1271,7 @@ qt_add_resources(LAUNCHER_RESOURCES
     resources/documents/documents.qrc
     resources/shaders/shaders.qrc
     resources/galaxy/galaxy.qrc
+    resources/orbit/orbit.qrc
     "${CMAKE_CURRENT_BINARY_DIR}/../${Launcher_Branding_LogoQRC}"
 )
 

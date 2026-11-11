@@ -187,7 +187,7 @@ set(Launcher_HELP_URL "https://prismlauncher.org/wiki/help-pages/%1" CACHE STRIN
 set(Launcher_LOGIN_CALLBACK_URL "https://prismlauncher.org/successful-login" CACHE STRING "URL that gets opened when the user successfully logins.")
 
 # Galaxy Launcher's own version, compared with the tags of the GitHub releases (vX.Y.Z) to offer updates.
-set(Launcher_GALAXY_VERSION "0.4.1")
+set(Launcher_GALAXY_VERSION "0.5.0")
 set(Launcher_GALAXY_RELEASES_REPO "ImNinnn/galaxy-launcher" CACHE STRING "GitHub repository (owner/name) whose releases Galaxy Launcher checks for updates; empty disables the check")
 set(Launcher_LEGACY_FMLLIBS_BASE_URL "https://files.prismlauncher.org/fmllibs/" CACHE STRING "URL for legacy (<=1.5.2) FML Libraries.")
 
@@ -281,8 +281,8 @@ set(Launcher_MSA_CLIENT_ID "f5fffe99-b7a7-475e-aeac-8bf4232a26be" CACHE STRING "
 # https://support.curseforge.com/en/support/solutions/articles/9000207405-curse-forge-3rd-party-api-terms-and-conditions
 # NOTE: CurseForge requires you to change this if you make any kind of derivative work.
 # This key was issued specifically for Prism Launcher
-# Galaxy Launcher: CurseForge requires derivative works to use their own key. Supply it with
-# -DLauncher_CURSEFORGE_API_KEY=... or set it at runtime in Settings > APIs.
+# Galaxy Launcher: no key is built in. Users enter one in Settings > APIs (CurseForge then appears in Discover), or a
+# build supplies one with -DLauncher_CURSEFORGE_API_KEY=...
 set(Launcher_CURSEFORGE_API_KEY "" CACHE STRING "API key for the CurseForge platform")
 
 set(Launcher_COMPILER_NAME ${CMAKE_CXX_COMPILER_ID})

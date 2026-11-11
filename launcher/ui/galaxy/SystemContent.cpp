@@ -141,6 +141,8 @@ QString projectUrl(const Resource& res)
             return QStringLiteral("https://modrinth.com/project/%1").arg(id);
         case ModPlatform::ResourceProvider::FLAME:
             return QStringLiteral("https://www.curseforge.com/projects/%1").arg(id);
+        case ModPlatform::ResourceProvider::ORBIT:
+            return QStringLiteral("https://orbitcosmetics.dev");
     }
     return {};
 }

@@ -45,6 +45,7 @@
 
 #include "ui/pages/modplatform/flame/FlameResourcePages.h"
 #include "ui/pages/modplatform/modrinth/ModrinthResourcePages.h"
+#include "ui/pages/modplatform/orbit/OrbitResourcePages.h"
 
 #include "modplatform/flame/FlameAPI.h"
 #include "modplatform/modrinth/ModrinthAPI.h"
@@ -199,7 +200,7 @@ void ResourceDownloadDialog::confirm()
         dependencyExtraInfo = task->getExtraInfo();
         for (const auto& dep : task->getDependecies()) {
             auto depExtra = dependencyExtraInfo.value(dep->pack->addonId.toString());
-            addResource(dep->pack, dep->version, "dependency", depExtra.requiredByIds.first());
+            addResource(dep->pack, dep->version, "dependency", depExtra.requiredByIds.value(0));  // Galaxy: no crash without one
             depNames << dep->pack->name;
         }
     }
@@ -344,6 +345,9 @@ void ResourceDownloadDialog::setResourceMetadata(const std::shared_ptr<Metadata:
         case ModPlatform::ResourceProvider::FLAME:
             selectPage(Flame::id());
             break;
+        case ModPlatform::ResourceProvider::ORBIT:
+            selectPage(Orbit::id());
+            break;
     }
 
     setWindowTitle(tr("Change %1 version").arg(meta->name));
@@ -400,6 +404,10 @@ ResourceDownloadDialog* ResourceDownloadDialog::createMod(QWidget* parent,
         flamePage->setSuppressInitialSearch(suppressInitialSearch);
         pages.append(flamePage);
     }
+    // Galaxy Launcher: Orbit, from its own server (a self-updating mod that mod sites cannot list).
+    auto* orbitPage = Orbit::createModPage(dialog, *instance);
+    orbitPage->setSuppressInitialSearch(suppressInitialSearch);
+    pages.append(orbitPage);
     dialog->initPages(pages);
     return dialog;
 }

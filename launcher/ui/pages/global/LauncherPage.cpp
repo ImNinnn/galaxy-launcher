@@ -57,6 +57,7 @@
 
 #include <QApplication>
 #include <QProcess>
+#include "ui/galaxy/GalaxyLook.h"
 
 // FIXME: possibly move elsewhere
 enum InstSortMode {
@@ -118,7 +119,7 @@ bool LauncherPage::confirmInstanceDirPath(const QString& rawDir, const QString& 
                            "After a restart the launcher might break, "
                            "because it will no longer have access to that directory.\n\n"
                            "Granting %1 access to it via Flatseal is recommended.")
-                            .arg(BuildConfig.LAUNCHER_DISPLAYNAME));
+                            .arg(GalaxyLook::launcherName()));
         warning.setInformativeText(tr("Do you want to proceed anyway?"));
         warning.setStandardButtons(QMessageBox::Ok | QMessageBox::Cancel);
         if (warning.exec() != QMessageBox::Ok)
