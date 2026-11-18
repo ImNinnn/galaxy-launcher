@@ -35,6 +35,7 @@
 #include "minecraft/mod/ShaderPackFolderModel.h"
 #include "ResourceDownloadTask.h"
 #include "modplatform/flame/FlameCheckUpdate.h"
+#include "modplatform/gravity/GravityAPI.h"
 #include "modplatform/modrinth/ModrinthCheckUpdate.h"
 #include "settings/SettingsObject.h"
 #include "tasks/SequentialTask.h"
@@ -146,8 +147,8 @@ void UpdateChecker::check(MinecraftInstance* instance, bool force)
 
     auto jobs = std::make_shared<QList<std::shared_ptr<Job>>>();
     auto sequence = makeShared<SequentialTask>(tr("Checking for updates"));
-    // Modrinth, and CurseForge when it is available: each file is checked where it was installed from.
-    QList<ModPlatform::ResourceProvider> providers{ ModPlatform::ResourceProvider::MODRINTH };
+    // Modrinth, Gravity Studios, and CurseForge when it is available: each file is checked where it was installed from.
+    QList<ModPlatform::ResourceProvider> providers{ ModPlatform::ResourceProvider::MODRINTH, ModPlatform::ResourceProvider::GRAVITY };
     if (APPLICATION->capabilities() & Application::SupportsFlame) {
         providers.append(ModPlatform::ResourceProvider::FLAME);
     }
@@ -176,6 +177,10 @@ void UpdateChecker::check(MinecraftInstance* instance, bool force)
             job->versions = { Version(minecraft->getVersion()) };
             if (provider == ModPlatform::ResourceProvider::FLAME) {
                 job->task.reset(new FlameCheckUpdate(job->resources, job->versions, source.loaders, source.model));
+            } else if (provider == ModPlatform::ResourceProvider::GRAVITY) {
+                // Gravity Studios' catalogue has Modrinth's shapes (self-updating projects carry no metadata, so never get here).
+                job->task.reset(new ModrinthCheckUpdate(job->resources, job->versions, source.loaders, source.model, {}, &GravityAPI::get(),
+                                                        ModPlatform::ResourceProvider::GRAVITY));
             } else {
                 job->task.reset(new ModrinthCheckUpdate(job->resources, job->versions, source.loaders, source.model));
             }

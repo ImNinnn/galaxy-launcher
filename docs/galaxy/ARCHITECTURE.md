@@ -63,9 +63,14 @@ All new code lives in `launcher/ui/galaxy/` unless noted.
 * `NewInstanceDialog::selectPage()` so "Import profile" opens on the import page.
 * CurseForge: `CurseForgeAPI` (a subclass of Prism's `FlameAPI`, which is no longer `final`) replaces the search
   and the sortings; the CurseForge pages use it. The CurseForge export and the `curseforge://` handler stay hidden.
-* Orbit source: `ModPlatform::ResourceProvider::ORBIT`, `OrbitAPI` and `ui/pages/modplatform/orbit`. Orbit's files
-  get no update metadata; its dependency on Fabric API resolves through Modrinth (`GetModDependenciesTask`), and
-  the review step no longer crashes on a dependency without a "required by" entry.
+* Gravity Studios source: `ModPlatform::ResourceProvider::GRAVITY`, `GravityAPI` and `ui/pages/modplatform/gravity`.
+  `ModrinthAPI` is no longer `final` (`baseUrl()`, `adapt()` and `loadCategoriesFor()` are its hooks) and
+  `ModrinthCheckUpdate` takes an API and a provider, so both serve Gravity's Modrinth-shaped catalogue.
+  `ModPlatform::Dependency` has an optional `provider`: `GetModDependenciesTask` resolves each dependency on its own
+  platform (`addDependencyTasks`). `IndexedPack::selfUpdating` keeps update metadata off self-updating projects.
+  Packwiz metadata reads and writes `[update.gravity]` like Modrinth's. The review step no longer crashes on a
+  dependency without a "required by" entry. Resource, shader and data pack pages load their categories from their
+  own source.
 * `MSAStep` always signs in through the browser with a local redirect page: `QOAuthHttpServerReplyHandler` listens on
   127.0.0.1 only, advertises `http://localhost:<port>/` (the redirect URI registered for Galaxy Launcher's Entra
   application) and serves `resources/galaxy/login-callback.html`, which shows success or Microsoft's error.
@@ -175,11 +180,16 @@ Discover's browser lists three sources for mods (two for packs and shaders):
   starting with the text, then names containing all of its words; popularity breaks ties. Versions, files,
   dependencies and update checks are Prism's (`FlameAPI`, `FlameCheckUpdate`); Galaxy's update markers include
   CurseForge files. No key is built in: CurseForge appears once the user enters one in Settings › APIs.
-* **Orbit** (mods only), from Orbit Cosmetics' server (`modplatform/orbit/OrbitAPI`). Orbit updates itself, so mod
-  sites cannot list it. `GET /v1/mod/update?target=<year.drop>&version=0.0.0` returns the newest release for the
-  profile's Minecraft version (26.3.1 asks for 26.3) with its download path and SHA-256; the search result carries
-  it as the project's one version, the download is checked against the SHA-256, and Fabric API is added from
-  Modrinth. The page explains when there is no release for the profile's version or the profile is not Fabric.
+* **Gravity Studios** (mods, resource packs, shader packs and data packs), Gravity Studios' catalogue on the Orbit
+  backend (`modplatform/gravity/GravityAPI`, spec: `GRAVITY_SOURCE.md` from the Orbit project). It has Modrinth's
+  API v2 shapes at `https://api.orbitcosmetics.dev/v1/catalog` (`GALAXY_GRAVITY_API_URL` overrides it for
+  development), so `GravityAPI` is `ModrinthAPI` at another address plus three fields: `self_updating` on projects,
+  `provider` on dependencies (Gravity, Modrinth or CurseForge) and `display_name` on categories. Every project
+  version is offered (filtered by the profile's Minecraft version and loader), files are checked against their
+  SHA-512, updates are found through `/version_files/update` (Galaxy's markers and Prism's update dialog), and
+  dependencies resolve on their own platform (Orbit's Fabric API on Modrinth). Self-updating projects (Orbit itself)
+  get no update metadata, so Galaxy never manages their updates; adding Orbit while the profile already has it
+  (as the other of its two projects) asks first, since Fabric refuses the same mod twice.
 
 ## The Orbit theme
 
@@ -311,9 +321,11 @@ private `kwin_wayland --virtual` compositor, not on the desktop. `INSTALLED=1` r
 Flatpak instead of the development build. `GALAXY_DEV_THEME=orbit` runs the tour (and the launch) with the Orbit
 theme. Every tour ends by switching to the other theme and back at runtime and checks the look, the chrome, the
 launcher name, the window title, the menus' style sheet and the saved setting ("Theme switch test"). The tour
-also checks that CurseForge's first result for "sodium" is Sodium and that the Orbit source shows Orbit.
-`GALAXY_DEV_ORBIT_PROFILE=<id>` (a Fabric profile for Minecraft 26.x) instead installs Orbit through Discover and
-checks the jar's SHA-256 and that Fabric API came with it.
+also checks that CurseForge's first result for "sodium" is Sodium (with `GALAXY_DEV_CURSEFORGE_KEY`) and that
+Gravity Studios offers Orbit on a Minecraft 26.x profile and nothing on others. `GALAXY_DEV_GRAVITY_PROFILE=<id>`
+(a Fabric profile for Minecraft 26.2, with `GALAXY_GRAVITY_API_URL` pointing at a development catalogue with its
+samples) instead installs an older Orbit (SHA-512 checked, Fabric API from Modrinth, no update metadata) and the
+sample shader pack's older version (Gravity metadata written, update to the newer one found).
 
 ## Known limitations
 

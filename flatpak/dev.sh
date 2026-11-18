@@ -75,7 +75,7 @@ case "$cmd" in
               "--env=GALAXY_DEV_WINDOW_SIZE=$size" "--env=QT_LOGGING_RULES=${QT_LOGGING_RULES:-}" "--env=GALAXY_DEV_PROFILE=${GALAXY_DEV_PROFILE:-}"
               "--env=GALAXY_DEV_PASSER=${GALAXY_DEV_PASSER:-}" "--env=GALAXY_DEV_APPLY_UPDATES=${GALAXY_DEV_APPLY_UPDATES:-}"
               "--env=GALAXY_DEV_LOGIN_TEST=${GALAXY_DEV_LOGIN_TEST:-}" "--env=GALAXY_DEV_FAKE_VERSION=${GALAXY_DEV_FAKE_VERSION:-}"
-              "--env=GALAXY_DEV_THEME=${GALAXY_DEV_THEME:-}" "--env=GALAXY_DEV_ORBIT_PROFILE=${GALAXY_DEV_ORBIT_PROFILE:-}"
+              "--env=GALAXY_DEV_THEME=${GALAXY_DEV_THEME:-}" "--env=GALAXY_DEV_GRAVITY_PROFILE=${GALAXY_DEV_GRAVITY_PROFILE:-}" "--env=GALAXY_GRAVITY_API_URL=${GALAXY_GRAVITY_API_URL:-}"
               "--env=GALAXY_DEV_CURSEFORGE_KEY=${GALAXY_DEV_CURSEFORGE_KEY:-}")
         if [ "${INSTALLED:-0}" = 1 ]; then
             # The installed app, with exactly the manifest's permissions plus access to the two test folders.

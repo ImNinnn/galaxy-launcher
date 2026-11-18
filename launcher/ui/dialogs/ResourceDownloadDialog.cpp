@@ -45,7 +45,7 @@
 
 #include "ui/pages/modplatform/flame/FlameResourcePages.h"
 #include "ui/pages/modplatform/modrinth/ModrinthResourcePages.h"
-#include "ui/pages/modplatform/orbit/OrbitResourcePages.h"
+#include "ui/pages/modplatform/gravity/GravityResourcePages.h"
 
 #include "modplatform/flame/FlameAPI.h"
 #include "modplatform/modrinth/ModrinthAPI.h"
@@ -345,8 +345,8 @@ void ResourceDownloadDialog::setResourceMetadata(const std::shared_ptr<Metadata:
         case ModPlatform::ResourceProvider::FLAME:
             selectPage(Flame::id());
             break;
-        case ModPlatform::ResourceProvider::ORBIT:
-            selectPage(Orbit::id());
+        case ModPlatform::ResourceProvider::GRAVITY:
+            selectPage(Gravity::id());
             break;
     }
 
@@ -404,10 +404,10 @@ ResourceDownloadDialog* ResourceDownloadDialog::createMod(QWidget* parent,
         flamePage->setSuppressInitialSearch(suppressInitialSearch);
         pages.append(flamePage);
     }
-    // Galaxy Launcher: Orbit, from its own server (a self-updating mod that mod sites cannot list).
-    auto* orbitPage = Orbit::createModPage(dialog, *instance);
-    orbitPage->setSuppressInitialSearch(suppressInitialSearch);
-    pages.append(orbitPage);
+    // Galaxy Launcher: Gravity Studios' catalogue (Orbit and the studio's other projects).
+    auto* gravityPage = Gravity::createModPage(dialog, *instance);
+    gravityPage->setSuppressInitialSearch(suppressInitialSearch);
+    pages.append(gravityPage);
     dialog->initPages(pages);
     return dialog;
 }
@@ -428,6 +428,9 @@ ResourceDownloadDialog* ResourceDownloadDialog::createResourcePack(QWidget* pare
         flamePage->setSuppressInitialSearch(suppressInitialSearch);
         pages.append(flamePage);
     }
+    auto* gravityPage = Gravity::createResourcePackResourcePage(dialog, *instance);
+    gravityPage->setSuppressInitialSearch(suppressInitialSearch);
+    pages.append(gravityPage);
     dialog->initPages(pages);
 
     return dialog;
@@ -470,6 +473,9 @@ ResourceDownloadDialog* ResourceDownloadDialog::createShaderPack(QWidget* parent
         flamePage->setSuppressInitialSearch(suppressInitialSearch);
         pages.append(flamePage);
     }
+    auto* gravityPage = Gravity::createShaderPackResourcePage(dialog, *instance);
+    gravityPage->setSuppressInitialSearch(suppressInitialSearch);
+    pages.append(gravityPage);
     dialog->initPages(pages);
 
     return dialog;
@@ -491,6 +497,9 @@ ResourceDownloadDialog* ResourceDownloadDialog::createDataPack(QWidget* parent,
         flamePage->setSuppressInitialSearch(suppressInitialSearch);
         pages.append(flamePage);
     }
+    auto* gravityPage = Gravity::createDataPackResourcePage(dialog, *instance);
+    gravityPage->setSuppressInitialSearch(suppressInitialSearch);
+    pages.append(gravityPage);
     dialog->initPages(pages);
 
     return dialog;

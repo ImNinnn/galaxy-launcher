@@ -55,6 +55,10 @@
 #include "ProjectActions.h"
 #include "GalaxyLook.h"
 #include "GalaxyTopBar.h"
+#include "UpdateChecker.h"
+#include "minecraft/mod/ModFolderModel.h"
+#include "minecraft/mod/ShaderPackFolderModel.h"
+#include "minecraft/PackProfile.h"
 #include <QLabel>
 #include "InstanceList.h"
 #include "launch/LaunchTask.h"
@@ -584,72 +588,172 @@ ModPlatform::IndexedPack::Ptr firstResult(ResourceDownload::ResourcePage* page)
     return model->data(model->index(0, 0), Qt::UserRole).value<ModPlatform::IndexedPack::Ptr>();
 }
 
+/** The project with this slug in the current source's results (after a search). */
+ModPlatform::IndexedPack::Ptr resultWithSlug(MainWindow* window, const QString& slug, QModelIndex* where = nullptr)
+{
+    auto* browser = discoverBrowser(window);
+    auto* model = browser ? browser->selectedPage()->getModel() : nullptr;
+    for (int row = 0; model && row < model->rowCount({}); row++) {
+        auto pack = model->data(model->index(row, 0), Qt::UserRole).value<ModPlatform::IndexedPack::Ptr>();
+        if (pack && pack->slug == slug) {
+            if (where) {
+                *where = model->index(row, 0);
+            }
+            return pack;
+        }
+    }
+    return nullptr;
+}
+
+/** Accepts Discover's review step while it runs, saving a picture of it once. */
+QTimer* acceptReviews(MainWindow* window, const QString& file)
+{
+    auto* reviewer = new QTimer(window);
+    QObject::connect(reviewer, &QTimer::timeout, window, [file] {
+        if (auto* review = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+            review && QString(review->metaObject()->className()) == "ReviewMessageBox") {
+            review->grab().save(file);
+            review->accept();
+        }
+    });
+    reviewer->start(500);
+    return reviewer;
+}
+
 /**
- * GALAXY_DEV_ORBIT_PROFILE=<id> (a Fabric profile for Minecraft 26.x): installs Orbit from Discover's Orbit source the
- * way a user does (select, review, confirm), then checks the jar against the server's SHA-256 and that Fabric API
- * came with it from Modrinth.
+ * Picks @p slug in Discover's Gravity Studios source for @p category, selects its versions (the second newest, so more
+ * than one version must be offered), installs it through the review step and calls @p done with the version.
  */
-void runOrbitInstallTest(MainWindow* window, const QString& directory, const QString& profileId)
+void installFromGravity(MainWindow* window,
+                        MinecraftInstance* instance,
+                        ProjectActions::Category category,
+                        const QString& search,
+                        const QString& slug,
+                        const QString& directory,
+                        const std::function<void(bool, ModPlatform::IndexedVersion)>& done)
+{
+    QTimer::singleShot(500, window, [window, instance, category] { ProjectActions::openDownloadDialog(window, instance, category); });
+    QTimer::singleShot(3500, window, [window, search] { searchSource(window, "gravity", search); });
+    QTimer::singleShot(7500, window, [window, slug] {
+        QModelIndex where;
+        if (resultWithSlug(window, slug, &where); where.isValid()) {
+            discoverBrowser(window)->selectedPage()->findChild<QListView*>("packView")->setCurrentIndex(where);  // loads its versions
+        }
+    });
+    QTimer::singleShot(11500, window, [window, slug, directory, done] {
+        auto pack = resultWithSlug(window, slug);
+        if (!pack || pack->versions.size() < 2) {
+            qWarning() << "Gravity install test:" << slug << "offers" << (pack ? pack->versions.size() : 0) << "versions, want at least 2";
+            done(false, {});
+            return;
+        }
+        auto version = pack->versions.at(1);
+        qInfo() << "Gravity install test: selecting" << slug << version.versionNumber << "of" << pack->versions.size() << "versions";
+        discoverBrowser(window)->addResource(pack, version);
+        window->grab().save(QDir(directory).filePath(QStringLiteral("40-gravity-%1.png").arg(slug)));
+        auto* reviewer = acceptReviews(window, QDir(directory).filePath(QStringLiteral("41-gravity-%1-review.png").arg(slug)));
+        QMetaObject::invokeMethod(discoverBrowser(window), "confirm", Qt::QueuedConnection);
+        QTimer::singleShot(2000, reviewer, &QTimer::stop);
+        done(true, version);
+    });
+}
+
+QString hashOf(const QString& path, QCryptographicHash::Algorithm algorithm)
+{
+    QFile file(path);
+    return file.open(QIODevice::ReadOnly) ? QString::fromLatin1(QCryptographicHash::hash(file.readAll(), algorithm).toHex()) : QString();
+}
+
+/** Waits (up to 90 s) until @p ready, then runs @p then. */
+void waitFor(MainWindow* window, const std::function<bool()>& ready, const std::function<void()>& then)
+{
+    auto clock = std::make_shared<QElapsedTimer>();
+    clock->start();
+    auto* poll = new QTimer(window);
+    QObject::connect(poll, &QTimer::timeout, window, [poll, clock, ready, then] {
+        if (!ready() && clock->elapsed() < 90000) {
+            return;
+        }
+        poll->stop();
+        poll->deleteLater();
+        then();
+    });
+    poll->start(1000);
+}
+
+/**
+ * GALAXY_DEV_GRAVITY_PROFILE=<id> (a Fabric profile for Minecraft 26.x; GALAXY_GRAVITY_API_URL may point at a local
+ * catalogue with its samples): installs from Discover's Gravity Studios source the way a user does.
+ * 1. Orbit (self-updating), an older version: the file matches its SHA-512, Fabric API comes from Modrinth, and no update
+ *    metadata is written.
+ * 2. The sample shader pack, its older version: metadata is written ([update.gravity]) and the update check offers
+ *    the newer one.
+ */
+void runGravityInstallTest(MainWindow* window, const QString& directory, const QString& profileId)
 {
     auto* instance = APPLICATION->instances()->getInstanceById(profileId);
     if (!instance) {
-        qWarning() << "Orbit install test: FAILED, no profile" << profileId;
+        qWarning() << "Gravity install test: FAILED, no profile" << profileId;
         QTimer::singleShot(200, window, &QWidget::close);
         return;
     }
-    QTimer::singleShot(1500, window, [window, instance] { ProjectActions::openDownloadDialog(window, instance, ProjectActions::Category::Mods); });
-    QTimer::singleShot(4500, window, [window] { searchSource(window, "orbit", QString()); });
-    QTimer::singleShot(9000, window, [window, directory, instance] {
-        auto* browser = discoverBrowser(window);
-        auto pack = browser ? firstResult(browser->selectedPage()) : nullptr;
-        if (!pack || pack->versions.isEmpty()) {
-            qWarning() << "Orbit install test: FAILED, no Orbit release offered for" << instance->name();
-            window->close();
-            return;
-        }
-        auto version = pack->versions.first();
-        qInfo() << "Orbit install test: selecting" << version.version << "for" << version.mcVersion;
-        browser->addResource(pack, version);
-        window->grab().save(QDir(directory).filePath("40-orbit-selected.png"));
-        // Accept the review step (it lists Fabric API from Modrinth too).
-        auto* reviewer = new QTimer(window);
-        QObject::connect(reviewer, &QTimer::timeout, window, [directory] {
-            if (auto* review = qobject_cast<QDialog*>(QApplication::activeModalWidget());
-                review && QString(review->metaObject()->className()) == "ReviewMessageBox") {
-                review->grab().save(QDir(directory).filePath("41-orbit-review.png"));
-                review->accept();
-            }
-        });
-        reviewer->start(500);
-        QMetaObject::invokeMethod(browser, "confirm", Qt::QueuedConnection);
-
-        const QString expected = version.hash;
-        const QDir mods(instance->modsRoot());
-        auto clock = std::make_shared<QElapsedTimer>();
-        clock->start();
-        auto* poll = new QTimer(window);
-        QObject::connect(poll, &QTimer::timeout, window, [window, mods, expected, clock, poll, reviewer, directory] {
-            const auto orbit = mods.entryList({ "orbit-*.jar" }, QDir::Files);
-            const auto fabricApi = mods.entryList({ "fabric-api*.jar" }, QDir::Files);
-            if ((orbit.isEmpty() || fabricApi.isEmpty()) && clock->elapsed() < 90000) {
+    QTimer::singleShot(1000, window, [window, instance, directory] {
+        installFromGravity(window, instance, ProjectActions::Category::Mods, "orbit", "orbit", directory,
+                           [window, instance, directory](bool started, const ModPlatform::IndexedVersion& orbitVersion) {
+            if (!started) {
+                qWarning() << "Gravity install test: Orbit FAILED";
+                window->close();
                 return;
             }
-            poll->stop();
-            reviewer->stop();
-            QString actual;
-            if (!orbit.isEmpty()) {
-                QFile jar(mods.filePath(orbit.first()));
-                if (jar.open(QIODevice::ReadOnly)) {
-                    actual = QString::fromLatin1(QCryptographicHash::hash(jar.readAll(), QCryptographicHash::Sha256).toHex());
+            const QDir mods(instance->modsRoot());
+            const QString orbitFile = orbitVersion.fileName;
+            waitFor(window, [mods, orbitFile] { return mods.exists(orbitFile) && !mods.entryList({ "fabric-api*.jar" }).isEmpty(); },
+                    [window, instance, directory, mods, orbitVersion] {
+                const bool fileOk = hashOf(mods.filePath(orbitVersion.fileName), QCryptographicHash::Sha512) == orbitVersion.hash;
+                const bool fabricApi = !mods.entryList({ "fabric-api*.jar" }).isEmpty();
+                const QDir index(instance->loaderModList()->indexDir());
+                bool orbitMetadata = false;
+                for (const auto& file : index.entryList({ "*.pw.toml" })) {
+                    QFile toml(index.filePath(file));
+                    orbitMetadata = orbitMetadata || (toml.open(QIODevice::ReadOnly) && toml.readAll().contains("[update.gravity]"));
                 }
-            }
-            window->grab().save(QDir(directory).filePath("42-orbit-installed.png"));
-            const bool passed = !orbit.isEmpty() && !fabricApi.isEmpty() && actual == expected;
-            qInfo() << "Orbit install test: Orbit" << orbit << "Fabric API" << fabricApi << "SHA-256 matches" << (actual == expected)
-                    << (passed ? "PASSED" : "FAILED");
-            QTimer::singleShot(500, window, &QWidget::close);
+                qInfo() << "Gravity install test: Orbit" << orbitVersion.versionNumber << "file matches" << fileOk << "Fabric API" << fabricApi
+                        << "no update metadata" << !orbitMetadata << (fileOk && fabricApi && !orbitMetadata ? "PASSED" : "FAILED");
+
+                installFromGravity(window, instance, ProjectActions::Category::ShaderPacks, "sample", "sample-shader", directory,
+                                   [window, instance, directory](bool started, const ModPlatform::IndexedVersion& shaderVersion) {
+                    if (!started) {
+                        qWarning() << "Gravity install test: shader pack FAILED";
+                        window->close();
+                        return;
+                    }
+                    auto* shaders = instance->shaderPackList();
+                    const QString shaderFile = shaderVersion.fileName;
+                    waitFor(window, [shaders, shaderFile] { return shaders->dir().exists(shaderFile); },
+                            [window, instance, directory, shaders, shaderVersion] {
+                        const QDir index(shaders->indexDir());
+                        bool metadata = false;
+                        for (const auto& file : index.entryList({ "*.pw.toml" })) {
+                            QFile toml(index.filePath(file));
+                            metadata = metadata || (toml.open(QIODevice::ReadOnly) && toml.readAll().contains("[update.gravity]"));
+                        }
+                        // Galaxy's update check (the red markers) finds the newer version on Gravity.
+                        QTimer::singleShot(4000, window, [window, instance] { UpdateChecker::instance()->check(instance, true); });
+                        QTimer::singleShot(16000, window, [window, instance, directory, metadata, shaderVersion] {
+                            QString offered;
+                            for (const auto& update : UpdateChecker::instance()->updatesFor(instance->id())) {
+                                offered += update.name + ' ' + update.oldVersion + " -> " + update.newVersion + "; ";
+                            }
+                            window->grab().save(QDir(directory).filePath("42-gravity-installed.png"));
+                            const bool updateFound = offered.contains("1.1.0");
+                            qInfo() << "Gravity install test: shader" << shaderVersion.versionNumber << "metadata" << metadata << "updates:" << offered
+                                    << (metadata && updateFound ? "PASSED" : "FAILED");
+                            QTimer::singleShot(500, window, &QWidget::close);
+                        });
+                    });
+                });
+            });
         });
-        poll->start(1000);
     });
 }
 
@@ -666,8 +770,8 @@ void GalaxyDevTour::start(MainWindow* window, const QString& directory)
     if (const auto size = qEnvironmentVariable("GALAXY_DEV_WINDOW_SIZE").split('x'); size.size() == 2) {
         window->resize(size[0].toInt(), size[1].toInt());
     }
-    if (const auto orbitProfile = qEnvironmentVariable("GALAXY_DEV_ORBIT_PROFILE"); !orbitProfile.isEmpty()) {
-        runOrbitInstallTest(window, directory, orbitProfile);
+    if (const auto gravityProfile = qEnvironmentVariable("GALAXY_DEV_GRAVITY_PROFILE"); !gravityProfile.isEmpty()) {
+        runGravityInstallTest(window, directory, gravityProfile);
         return;
     }
     auto* galaxy = window->m_galaxy;
@@ -1011,7 +1115,7 @@ void GalaxyDevTour::start(MainWindow* window, const QString& directory)
               }
           },
           QString() },
-        // Discover's sources: CurseForge finds the project the search names first; Orbit is its own source.
+        // Discover's sources: CurseForge finds the project the search names first; Gravity Studios lists Orbit.
         { 300,
           [window, target] {
               ProjectActions::openDownloadDialog(window, APPLICATION->instances()->getInstanceById(target), ProjectActions::Category::Mods,
@@ -1030,20 +1134,26 @@ void GalaxyDevTour::start(MainWindow* window, const QString& directory)
                   qInfo() << "CurseForge search test: first result for \"sodium\" is" << (first ? first->name : QString("nothing"))
                           << (first && first->name == "Sodium" ? "PASSED" : "FAILED");
               }
-              searchSource(window, "orbit", QString());
+              searchSource(window, "gravity", "orbit");
           },
           QString() },
         { 4000,
-          [window, directory] {
+          [window, directory, target] {
               auto* browser = discoverBrowser(window);
               auto first = browser ? firstResult(browser->selectedPage()) : nullptr;
               if (auto* page = browser ? browser->selectedPage() : nullptr; page && page->getModel()->rowCount({}) > 0) {
                   page->findChild<QListView*>("packView")->setCurrentIndex(page->getModel()->index(0, 0));
               }
               QApplication::processEvents();
-              window->grab().save(QDir(directory).filePath("38-discover-orbit.png"));
-              qInfo() << "Orbit source test: shows" << (first ? first->name : QString("nothing"))
-                      << (first && first->name == "Orbit" && first->provider == ModPlatform::ResourceProvider::ORBIT ? "PASSED" : "FAILED");
+              window->grab().save(QDir(directory).filePath("38-discover-gravity.png"));
+              // Orbit is made for Minecraft 26.x: a profile for another version is offered nothing (the version filter works).
+              auto* profile = APPLICATION->instances()->getInstanceById(target);
+              const auto minecraft = profile ? profile->getPackProfile()->getComponentVersion("net.minecraft") : QString();
+              const bool orbitExpected = minecraft.startsWith("26.");
+              const bool passed = orbitExpected ? (first && first->name == "Orbit" && first->provider == ModPlatform::ResourceProvider::GRAVITY)
+                                                : !first;
+              qInfo() << "Gravity Studios source test: Minecraft" << minecraft << "first result for \"orbit\" is"
+                      << (first ? first->name : QString("nothing")) << (passed ? "PASSED" : "FAILED");
               for (auto* top : window->findChildren<QWidget*>("galaxyDiscoverWindow")) {
                   if (top->isVisible()) {
                       top->close();

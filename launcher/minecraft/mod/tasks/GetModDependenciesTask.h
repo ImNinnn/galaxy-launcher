@@ -29,6 +29,7 @@
 #include "modplatform/ModIndex.h"
 #include "modplatform/ResourceAPI.h"
 #include "modplatform/flame/FlameAPI.h"
+#include "modplatform/gravity/GravityAPI.h"
 #include "modplatform/modrinth/ModrinthAPI.h"
 #include "tasks/SequentialTask.h"
 #include "tasks/Task.h"
@@ -64,11 +65,16 @@ class GetModDependenciesTask : public SequentialTask {
         if (provider == ModPlatform::ResourceProvider::FLAME) {
             return &FlameAPI::get();
         }
+        if (provider == ModPlatform::ResourceProvider::GRAVITY) {
+            return &GravityAPI::get();
+        }
         return &ModrinthAPI::get();
     }
 
    protected slots:
     Task::Ptr prepareDependencyTask(const ModPlatform::Dependency&, ModPlatform::ResourceProvider, int);
+    /** Galaxy Launcher: queues the version's required dependencies, each on its own provider. */
+    void addDependencyTasks(const ModPlatform::IndexedVersion& version, ModPlatform::ResourceProvider own, int level);
     QList<ModPlatform::Dependency> getDependenciesForVersion(const ModPlatform::IndexedVersion&,
                                                              ModPlatform::ResourceProvider providerName);
     void prepare();

@@ -192,9 +192,16 @@ void V1::updateModIndex(const QDir& indexDir, Mod& mod)
                 { "version", mod.version().toString().toStdString() },
             };
             break;
-        case (ModPlatform::ResourceProvider::ORBIT):
-            qCritical() << QString("Did not write file %1: Orbit's files carry no metadata").arg(normalizedFname);
-            return;
+        case (ModPlatform::ResourceProvider::GRAVITY):  // Galaxy Launcher: Modrinth's fields
+            if (mod.modId().toString().isEmpty() || mod.version().toString().isEmpty()) {
+                qCritical() << QString("Did not write file %1 because missing information!").arg(normalizedFname);
+                return;
+            }
+            update = toml::table{
+                { "mod-id", mod.modId().toString().toStdString() },
+                { "version", mod.version().toString().toStdString() },
+            };
+            break;
     }
 
     toml::array loaders;
@@ -362,10 +369,12 @@ auto V1::getIndexForMod(const QDir& indexDir, const QString& slug) -> Mod
             mod.projectId = intEntry(*modProviderTable, "project-id");
         } else {
             modProviderTable = updateTable[ModPlatform::ProviderCapabilities::name(Provider::MODRINTH)].as_table();
-            if (modProviderTable != nullptr) {
-                mod.provider = Provider::MODRINTH;
-                mod.modId() = stringEntry(*modProviderTable, "mod-id");
-                mod.version() = stringEntry(*modProviderTable, "version");
+            auto* gravityTable = updateTable[ModPlatform::ProviderCapabilities::name(Provider::GRAVITY)].as_table();
+            if (modProviderTable != nullptr || gravityTable != nullptr) {
+                mod.provider = modProviderTable != nullptr ? Provider::MODRINTH : Provider::GRAVITY;  // Galaxy: Gravity has Modrinth's fields
+                const auto& providerTable = modProviderTable != nullptr ? *modProviderTable : *gravityTable;
+                mod.modId() = stringEntry(providerTable, "mod-id");
+                mod.version() = stringEntry(providerTable, "version");
             } else {
                 qCritical() << QString("No mod provider on mod metadata!");
                 return {};

@@ -48,12 +48,14 @@ class ResourceUpdateDialog final : public ReviewMessageBox {
 
     shared_qobject_ptr<ModrinthCheckUpdate> m_modrinthCheckTask;
     shared_qobject_ptr<FlameCheckUpdate> m_flameCheckTask;
+    shared_qobject_ptr<ModrinthCheckUpdate> m_gravityCheckTask;  // Galaxy Launcher: Gravity Studios
 
     ResourceFolderModel* m_resourceModel;
 
     QList<Resource*>& m_candidates;
     QList<Resource*> m_modrinthToUpdate;
     QList<Resource*> m_flameToUpdate;
+    QList<Resource*> m_gravityToUpdate;
 
     ConcurrentTask::Ptr m_secondTryMetadata;
     QList<std::tuple<Resource*, QString>> m_failedMetadata;

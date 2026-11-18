@@ -17,7 +17,11 @@
 #include <QUrl>
 #include <utility>
 
-class ModrinthAPI final : public ResourceAPI {
+/**
+ * Galaxy Launcher: not final. GravityAPI reuses it for Gravity Studios' catalogue, which has Modrinth's API v2 shapes
+ * at another address: baseUrl() and adapt() are its hooks; the static helpers stay Modrinth's.
+ */
+class ModrinthAPI : public ResourceAPI {
    public:
     static const ModrinthAPI& get()
     {
@@ -49,15 +53,25 @@ class ModrinthAPI final : public ResourceAPI {
 
     std::pair<Task::Ptr, QByteArray*> getModCategories() const override;
     static QList<ModPlatform::Category> loadCategories(const QByteArray& response, const QString& projectType);
+    /** Categories of a project type, from getModCategories()' response (GravityAPI reads its display names). */
+    virtual QList<ModPlatform::Category> loadCategoriesFor(const QByteArray& response, const QString& projectType) const
+    {
+        return loadCategories(response, projectType);
+    }
+    /** The API's address (Modrinth's here). */
+    virtual QString baseUrl() const { return BuildConfig.MODRINTH_PROD_URL; }
     QList<ModPlatform::Category> loadModCategories(const QByteArray& response) const override;
 
    public:
     auto getSortingMethods() const -> QList<ResourceAPI::SortingMethod> override;
 
-   private:
-    static auto getMultipleModInfoURL(const QStringList& ids) -> QString
+   protected:
+    /** Galaxy: after a project (or search hit) was parsed as Modrinth's, the subclass reads its own fields. */
+    virtual void adapt(ModPlatform::IndexedPack& /*pack*/, const QJsonObject& /*obj*/) const {}
+
+    auto getMultipleModInfoURL(const QStringList& ids) const -> QString
     {
-        return BuildConfig.MODRINTH_PROD_URL + QString("/projects?ids=[\"%1\"]").arg(ids.join("\",\""));
+        return baseUrl() + QString("/projects?ids=[\"%1\"]").arg(ids.join("\",\""));
     };
 
     auto getVersionsURL(const VersionSearchArgs& args) const -> std::optional<QString> override;
@@ -76,6 +90,6 @@ class ModrinthAPI final : public ResourceAPI {
     Net::RPC::Spec<ModPlatform::IndexedPack> getProject(const QString& id) const override;
     Net::RPC::Spec<QList<ModPlatform::IndexedPack>> searchProjects(const SearchArgs& args) const override;
 
-   private:
-    static QUrl searchProjectsURL(const SearchArgs& args);
+   protected:
+    QUrl searchProjectsURL(const SearchArgs& args) const;
 };

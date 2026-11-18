@@ -55,6 +55,7 @@ class ResourceModel : public QAbstractListModel {
     Task::Ptr activeSearchJob() { return hasActiveSearchJob() ? m_currentSearchJob : nullptr; }
 
     auto getSortingMethods() const { return m_api->getSortingMethods(); }
+    const ResourceAPI* api() const { return m_api; }
 
     virtual QVariant getInstalledPackVersion(ModPlatform::IndexedPack::Ptr /*unused*/) const;
     /** Whether the version is opted out or not. Currently only makes sense in CF. */

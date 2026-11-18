@@ -126,8 +126,8 @@ void EnsureMetadataTask::executeTask()
         case (ModPlatform::ResourceProvider::FLAME):
             versionTask = flameVersionsTask();
             break;
-        case (ModPlatform::ResourceProvider::ORBIT):
-            break;  // Orbit's files carry no metadata (the mod updates itself)
+        case (ModPlatform::ResourceProvider::GRAVITY):
+            break;  // files are not identified on Gravity
     }
     if (!versionTask) {
         for (auto resource = m_resources.constBegin(); resource != m_resources.constEnd(); resource++) {
@@ -157,7 +157,7 @@ void EnsureMetadataTask::executeTask()
             case (ModPlatform::ResourceProvider::FLAME):
                 projectTask = flameProjectsTask();
                 break;
-            case (ModPlatform::ResourceProvider::ORBIT):
+            case (ModPlatform::ResourceProvider::GRAVITY):
                 break;
         }
 

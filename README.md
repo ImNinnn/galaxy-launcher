@@ -17,7 +17,7 @@ every action (installing, updating, launching, accounts) goes through Prism Laun
 
 * **Launch with style**: the system collapses into its sun, which explodes into a nebula while you play.
 * **Discover**: browse and install mods, resource packs, shader packs and data packs from Modrinth and CurseForge
-  (with your CurseForge API key in Settings › APIs), and the Orbit mod straight from Orbit's own server.
+  (with your CurseForge API key in Settings › APIs), and from Gravity Studios (Orbit and the studio's packs).
 * **Updates at a glance**: outdated content is marked in red; update one project or the whole profile at once.
 * **A classic list view** whenever you want it, with the same data.
 * **Two looks**: Galaxy's deep space purple, or **Orbit** (Settings › Appearance › Theme), Orbit Cosmetics' grey,
@@ -72,8 +72,8 @@ Differences from Prism Launcher include:
 
 * the galaxy view, the Discover window, update markers and the updates window, the launch nebula, Discord Rich
   Presence, the space theme and the Orbit theme;
-* its own CurseForge search (results ranked by how well their name matches, never modpacks among mods) and an Orbit
-  source;
+* its own CurseForge search (results ranked by how well their name matches, never modpacks among mods) and a Gravity
+  Studios source;
 * its own name, icon and data folder, so it can be installed next to Prism Launcher.
 
 ## Building from source

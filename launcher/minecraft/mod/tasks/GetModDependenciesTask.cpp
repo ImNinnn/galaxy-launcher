@@ -117,12 +117,23 @@ void GetModDependenciesTask::prepare()
 {
     for (const auto& sel : m_selected) {
         if (checkDependencies(sel, m_version, m_loaderType)) {
-            // Galaxy Launcher: Orbit's dependencies (Fabric API) are Modrinth projects.
-            const auto provider =
-                sel->pack->provider == ModPlatform::ResourceProvider::ORBIT ? ModPlatform::ResourceProvider::MODRINTH : sel->pack->provider;
-            for (const auto& dep : getDependenciesForVersion(sel->version, provider)) {
-                addTask(prepareDependencyTask(dep, provider, 20));
-            }
+            addDependencyTasks(sel->version, sel->pack->provider, 20);
+        }
+    }
+}
+
+void GetModDependenciesTask::addDependencyTasks(const ModPlatform::IndexedVersion& version, ModPlatform::ResourceProvider own, int level)
+{
+    // Galaxy Launcher: a dependency can live on another platform than the project needing it (Gravity Studios' Orbit
+    // needs Fabric API from Modrinth), so each one is resolved on its own provider.
+    for (const auto provider : { ModPlatform::ResourceProvider::MODRINTH, ModPlatform::ResourceProvider::FLAME, ModPlatform::ResourceProvider::GRAVITY }) {
+        auto onProvider = version;
+        onProvider.dependencies.removeIf([own, provider](const ModPlatform::Dependency& d) { return d.provider.value_or(own) != provider; });
+        if (onProvider.dependencies.isEmpty()) {
+            continue;
+        }
+        for (const auto& dep : getDependenciesForVersion(onProvider, provider)) {
+            addTask(prepareDependencyTask(dep, provider, level));
         }
     }
 }
@@ -263,9 +274,7 @@ Task::Ptr GetModDependenciesTask::prepareDependencyTask(const ModPlatform::Depen
             removePack(pDep->version.addonId);
             return;
         }
-        for (const auto& dependency : getDependenciesForVersion(pDep->version, provider)) {
-            addTask(prepareDependencyTask(dependency, provider, level - 1));
-        }
+        addDependencyTasks(pDep->version, provider, level - 1);
     };
 
     auto version = getAPI(provider)->getDependencyVersion(args, callbacks);
@@ -294,15 +303,10 @@ auto GetModDependenciesTask::getExtraInfo() -> QHash<QString, PackDependencyExtr
         auto reqNames = QStringList();
         auto reqIds = QStringList();
         for (auto& smod : fullList) {
-            // Galaxy Launcher: Orbit's dependencies are Modrinth projects.
-            const auto requirer = smod->pack->provider == ModPlatform::ResourceProvider::ORBIT ? ModPlatform::ResourceProvider::MODRINTH
-                                                                                                : smod->pack->provider;
-            if (provider != requirer) {
-                continue;
-            }
             auto deps = smod->version.dependencies;
-            auto isRequiredByOther = [addonId, provider, version](const ModPlatform::Dependency& d) {
-                return d.type == ModPlatform::DependencyType::REQUIRED &&
+            // Galaxy Launcher: a dependency's own provider when it names one (Gravity's can be on Modrinth).
+            auto isRequiredByOther = [addonId, provider, version, smod](const ModPlatform::Dependency& d) {
+                return d.provider.value_or(smod->pack->provider) == provider && d.type == ModPlatform::DependencyType::REQUIRED &&
                        (provider == ModPlatform::ResourceProvider::MODRINTH && d.addonId.toString().isEmpty() ? version == d.version
                                                                                                               : d.addonId == addonId);
             };

@@ -491,8 +491,8 @@ set(API_SOURCES
     modplatform/flame/FlameAPI.cpp
     modplatform/flame/CurseForgeAPI.h
     modplatform/flame/CurseForgeAPI.cpp
-    modplatform/orbit/OrbitAPI.h
-    modplatform/orbit/OrbitAPI.cpp
+    modplatform/gravity/GravityAPI.h
+    modplatform/gravity/GravityAPI.cpp
     modplatform/flame/FlamePackIndex.h
     modplatform/flame/FlamePackIndex.cpp
     modplatform/modrinth/ModrinthAPI.h
@@ -1072,8 +1072,8 @@ SET(LAUNCHER_SOURCES
     ui/pages/modplatform/flame/FlameResourceModels.cpp
     ui/pages/modplatform/flame/FlameResourceModels.h
     ui/pages/modplatform/flame/FlameResourcePages.cpp
-    ui/pages/modplatform/orbit/OrbitResourcePages.h
-    ui/pages/modplatform/orbit/OrbitResourcePages.cpp
+    ui/pages/modplatform/gravity/GravityResourcePages.h
+    ui/pages/modplatform/gravity/GravityResourcePages.cpp
     ui/pages/modplatform/flame/FlameResourcePages.h
 
     ui/pages/modplatform/modrinth/ModrinthPage.cpp

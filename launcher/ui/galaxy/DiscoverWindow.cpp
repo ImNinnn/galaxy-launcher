@@ -442,7 +442,7 @@ void DiscoverWindow::rebuild(const QString& search)
     dialog->show();
 
     m_status->setText(
-        tr("Projects come from Modrinth, CurseForge or Orbit (choose on the left). Select projects (and versions) in the list, then press \"Review and confirm\": nothing "
+        tr("Projects come from Modrinth, CurseForge or Gravity Studios (choose on the left). Select projects (and versions) in the list, then press \"Review and confirm\": nothing "
            "is installed before you confirm. Use the filter button next to the search field for Minecraft version, loader, "
            "categories and more."));
 

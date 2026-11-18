@@ -26,6 +26,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <utility>
 #include "EnumWrapper.h"
 #include "modplatform/ResourceType.h"
@@ -57,7 +58,7 @@ using enum ModLoaderType;
 Q_DECLARE_FLAGS(ModLoaderTypes, ModLoaderType)
 QList<ModLoaderType> modLoaderTypesToList(ModLoaderTypes flags);
 
-enum class ResourceProvider : std::uint8_t { MODRINTH, FLAME, ORBIT };  // Galaxy Launcher: ORBIT, Orbit's own server
+enum class ResourceProvider : std::uint8_t { MODRINTH, FLAME, GRAVITY };  // Galaxy Launcher: GRAVITY, Gravity Studios' catalogue
 
 enum class DependencyTypeValue : std::uint8_t { REQUIRED, OPTIONAL, INCOMPATIBLE, EMBEDDED, TOOL, INCLUDE, UNKNOWN };
 struct DependencyType : EnumWrapper<DependencyType, DependencyTypeValue> {
@@ -235,6 +236,8 @@ struct Dependency {
     QVariant addonId;
     DependencyType type;
     QString version;
+    /** Galaxy Launcher: where the dependency lives when not on the dependent's own platform (Gravity's can be on Modrinth). */
+    std::optional<ResourceProvider> provider = std::nullopt;
 };
 
 struct IndexedVersion {
@@ -311,6 +314,9 @@ struct IndexedPack {
     ExtraPackData extraData;
 
     ResourceType resourceType = ResourceType::Unknown;
+
+    /** Galaxy Launcher: the project updates itself (Gravity Studios' Orbit), so it gets no update metadata. */
+    bool selfUpdating = false;
 
     // For internal use, not provided by APIs
     bool isVersionSelected(int index) const

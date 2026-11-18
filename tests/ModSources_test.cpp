@@ -20,7 +20,7 @@
 #include <QUrlQuery>
 
 #include <modplatform/flame/CurseForgeAPI.h>
-#include <modplatform/orbit/OrbitAPI.h>
+#include <modplatform/gravity/GravityAPI.h>
 
 /** Galaxy Launcher's CurseForge search (encoding, kinds, ranking) and the Orbit source (targets, releases). */
 class ModSourcesTest : public QObject {
@@ -66,34 +66,32 @@ class ModSourcesTest : public QObject {
                 CurseForgeAPI::relevance("fabric api", "Cloth Config API (Fabric/Forge)", "cloth-config", ""));
     }
 
-    void test_orbitTarget()
+    void test_gravityVersion()
     {
-        QCOMPARE(OrbitAPI::targetFor("26.3"), QStringLiteral("26.3"));
-        QCOMPARE(OrbitAPI::targetFor("26.3.1"), QStringLiteral("26.3"));
-        QCOMPARE(QUrlQuery(OrbitAPI::releaseUrl("26.1")).queryItemValue("target"), QStringLiteral("26.1"));
+        // A version as Gravity Studios' catalogue sends it (Modrinth's shape plus "provider" on dependencies).
+        const auto version = GravityAPI::parseVersion(QJsonDocument::fromJson("{" "\"id\": \"orbit-1.3.2-26.3\", \"project_id\": \"orbit\", \"name\": \"Orbit 1.3.2 for 26.3\", \"version_number\": \"1.3.2+26.3\"," "\"changelog\": null, \"date_published\": \"2026-11-16T21:11:08Z\", \"version_type\": \"release\", \"status\": \"listed\"," "\"files\": [{\"hashes\": {\"sha1\": \"dc9f\", \"sha512\": \"8c73\", \"sha256\": \"46fd\"}," "\"url\": \"https://api.orbitcosmetics.dev/v1/catalog/download/orbit-1.3.2-26.3/orbit-mod-mc26.3-1.3.2.jar\"," "\"filename\": \"orbit-mod-mc26.3-1.3.2.jar\", \"primary\": true, \"size\": 1198454, \"file_type\": null}]," "\"dependencies\": [" "{\"version_id\": null, \"project_id\": \"P7dR8mSH\", \"file_name\": null, \"dependency_type\": \"required\", \"provider\": \"modrinth\"}," "{\"version_id\": null, \"project_id\": \"gs-lib\", \"file_name\": null, \"dependency_type\": \"optional\", \"provider\": \"gravity\"}," "{\"version_id\": null, \"project_id\": \"123\", \"file_name\": null, \"dependency_type\": \"required\", \"provider\": \"curseforge\"}]," "\"game_versions\": [\"26.3\", \"26.3.1\"], \"loaders\": [\"fabric\"]}")
+                                                                .object());
+        QVERIFY(version.has_value());
+        QCOMPARE(version->fileName, QStringLiteral("orbit-mod-mc26.3-1.3.2.jar"));
+        QCOMPARE(version->hashType, QStringLiteral("sha512"));
+        QCOMPARE(version->hash, QStringLiteral("8c73"));
+        QVERIFY(version->mcVersion.contains("26.3.1"));
+        QCOMPARE(version->dependencies.size(), 3);
+        QCOMPARE(version->dependencies[0].provider, std::optional(ModPlatform::ResourceProvider::MODRINTH));
+        QCOMPARE(version->dependencies[1].provider, std::optional(ModPlatform::ResourceProvider::GRAVITY));
+        QCOMPARE(version->dependencies[2].provider, std::optional(ModPlatform::ResourceProvider::FLAME));
     }
 
-    void test_orbitRelease()
+    void test_gravityProject()
     {
-        const auto answer = QJsonDocument::fromJson(R"({"latest":"1.0.3","minimum":"1.0.0","required":true,
-            "update":{"version":"1.0.3","url":"/v1/mod/releases/1.0.3/26.3","sha256":"c561c8","size":980534,"signature":"x"}})")
-                                .object();
-        const auto pack = OrbitAPI::project(answer, "26.3", "26.3.1");
-        QCOMPARE(pack.provider, ModPlatform::ResourceProvider::ORBIT);
-        QVERIFY(pack.versionsLoaded);
-        QCOMPARE(pack.versions.size(), 1);
-        const auto& version = pack.versions.first();
-        QCOMPARE(version.downloadUrl, QStringLiteral("https://api.orbitcosmetics.dev/v1/mod/releases/1.0.3/26.3"));
-        QCOMPARE(version.hashType, QStringLiteral("sha256"));
-        QCOMPARE(version.hash, QStringLiteral("c561c8"));
-        QVERIFY(version.mcVersion.contains("26.3.1"));
-        QVERIFY(version.loaders.testFlag(ModPlatform::Fabric));
-        QCOMPARE(version.dependencies.size(), 1);
-        QCOMPARE(version.dependencies.first().addonId.toString(), QString::fromLatin1(OrbitAPI::FabricApiModrinthId));
-
-        // No release for this Minecraft version: the project, without versions.
-        const auto none = OrbitAPI::project(QJsonDocument::fromJson(R"({"latest":null,"update":null})").object(), "1.21", "1.21.1");
-        QVERIFY(none.versions.isEmpty());
+        const auto hit = GravityAPI::parseProject(QJsonDocument::fromJson("{" "\"project_id\": \"orbit\", \"project_type\": \"mod\", \"slug\": \"orbit\", \"author\": \"Gravity Studios\", \"title\": \"Orbit\"," "\"description\": \"Cosmetics.\", \"categories\": [\"cosmetic\", \"fabric\"], \"versions\": [\"26.3\"], \"downloads\": 1," "\"icon_url\": \"https://api.orbitcosmetics.dev/v1/catalog/icon/orbit.png\", \"client_side\": \"required\"," "\"server_side\": \"unsupported\", \"self_updating\": true}")
+                                                           .object());
+        QVERIFY(hit.has_value());
+        QCOMPARE(hit->provider, ModPlatform::ResourceProvider::GRAVITY);
+        QVERIFY(hit->selfUpdating);
+        QCOMPARE(hit->name, QStringLiteral("Orbit"));
+        QCOMPARE(QString(ModPlatform::ProviderCapabilities::name(ModPlatform::ResourceProvider::GRAVITY)), QStringLiteral("gravity"));
+        QCOMPARE(GravityAPI::get().baseUrl(), QString::fromLatin1(GravityAPI::ProductionUrl));
     }
 };
 

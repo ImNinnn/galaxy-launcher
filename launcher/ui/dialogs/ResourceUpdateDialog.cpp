@@ -21,6 +21,7 @@
 
 #include "modplatform/EnsureMetadataTask.h"
 #include "modplatform/flame/FlameCheckUpdate.h"
+#include "modplatform/gravity/GravityAPI.h"
 #include "modplatform/modrinth/ModrinthCheckUpdate.h"
 
 #include <QClipboard>
@@ -41,7 +42,7 @@ ModPlatform::ResourceProvider next(ModPlatform::ResourceProvider p)
         case ModPlatform::ResourceProvider::MODRINTH:
             return ModPlatform::ResourceProvider::FLAME;
         case ModPlatform::ResourceProvider::FLAME:
-        case ModPlatform::ResourceProvider::ORBIT:  // never looked up: Orbit's files carry no metadata
+        case ModPlatform::ResourceProvider::GRAVITY:  // never looked up: files are not identified on Gravity
             return ModPlatform::ResourceProvider::MODRINTH;
     }
 
@@ -130,6 +131,16 @@ void ResourceUpdateDialog::checkCandidates()
         checkTask.addTask(m_flameCheckTask);
     }
 
+    if (!m_gravityToUpdate.empty()) {
+        m_gravityCheckTask.reset(new ModrinthCheckUpdate(m_gravityToUpdate, versions, m_loadersList, m_resourceModel, m_releaseTypes,
+                                                         &GravityAPI::get(), ModPlatform::ResourceProvider::GRAVITY));
+        connect(m_gravityCheckTask.get(), &CheckUpdateTask::checkFailed, this,
+                [this](Resource* resource, const QString& reason, const QUrl& recoverUrl) {
+                    m_failedCheckUpdate.append({ resource, reason, recoverUrl });
+                });
+        checkTask.addTask(m_gravityCheckTask);
+    }
+
     connect(&checkTask, &Task::failed, this,
             [this](const QString& reason) { CustomMessageBox::selectable(this, tr("Error"), reason, QMessageBox::Critical)->exec(); });
 
@@ -177,6 +188,14 @@ void ResourceUpdateDialog::checkCandidates()
             m_tasks.insert(updatable.name, updatable.download);
         }
         selectedVers.append(m_flameCheckTask->getDependencies());
+    }
+
+    if (m_gravityCheckTask) {
+        for (auto& updatable : m_gravityCheckTask->getUpdates()) {
+            appendResource(updatable);
+            m_tasks.insert(updatable.name, updatable.download);
+        }
+        selectedVers.append(m_gravityCheckTask->getDependencies());
     }
 
     // Report failed update checking
@@ -323,8 +342,8 @@ auto ResourceUpdateDialog::ensureMetadata() -> bool
             case ModPlatform::ResourceProvider::FLAME:
                 flameTmp.push_back(resource);
                 break;
-            case ModPlatform::ResourceProvider::ORBIT:
-                break;  // Orbit updates itself
+            case ModPlatform::ResourceProvider::GRAVITY:
+                break;  // files are not identified on Gravity (it has no files other than its own downloads)
         }
     };
 
@@ -436,8 +455,9 @@ void ResourceUpdateDialog::onMetadataEnsured(Resource* resource)
                 m_flameToUpdate.push_back(resource);
             }
             break;
-        case ModPlatform::ResourceProvider::ORBIT:
-            break;  // Orbit updates itself
+        case ModPlatform::ResourceProvider::GRAVITY:
+            m_gravityToUpdate.push_back(resource);
+            break;
     }
 }
 

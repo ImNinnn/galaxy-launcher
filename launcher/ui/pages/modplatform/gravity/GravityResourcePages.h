@@ -17,17 +17,23 @@
 
 #pragma once
 
+#include "ui/pages/modplatform/DataPackPage.h"
 #include "ui/pages/modplatform/ModPage.h"
+#include "ui/pages/modplatform/ResourcePackPage.h"
+#include "ui/pages/modplatform/ShaderPackPage.h"
 
 namespace ResourceDownload {
 
-/** Discover's Orbit source: Orbit from Orbit Cosmetics' own server (see OrbitAPI). Mods only. */
-namespace Orbit {
+/** Discover's Gravity Studios source (see GravityAPI), on the mod, resource pack, shader pack and data pack pages. */
+namespace Gravity {
 inline QString id()
 {
-    return "orbit";
+    return "gravity";
 }
 ModPage* createModPage(ResourceDownloadDialog* dialog, BaseInstance& instance);
-}  // namespace Orbit
+ResourcePackResourcePage* createResourcePackResourcePage(ResourceDownloadDialog* dialog, BaseInstance& instance);
+ShaderPackResourcePage* createShaderPackResourcePage(ResourceDownloadDialog* dialog, BaseInstance& instance);
+DataPackResourcePage* createDataPackResourcePage(ResourceDownloadDialog* dialog, BaseInstance& instance);
+}  // namespace Gravity
 
 }  // namespace ResourceDownload

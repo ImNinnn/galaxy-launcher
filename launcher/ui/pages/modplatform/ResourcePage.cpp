@@ -144,11 +144,15 @@ void ResourcePage::enablePackFilter(ModFilterWidget* widget, const QString& cate
             [this] { m_packFilterWidget->setHidden(!m_packFilterWidget->isHidden()); });
     m_ui->resourceFilterButton->setVisible(true);
 
-    // Galaxy Launcher uses Modrinth only; its categories are listed per project type.
-    auto [task, response] = ModrinthAPI::get().getModCategories();
+    // Galaxy Launcher: categories listed per project type, by Modrinth or by Gravity Studios (same shapes).
+    const auto* api = dynamic_cast<const ModrinthAPI*>(m_model->api());
+    if (!api) {
+        api = &ModrinthAPI::get();
+    }
+    auto [task, response] = api->getModCategories();
     m_packCategoriesTask = task;
-    connect(task.get(), &Task::succeeded, this, [this, response, categoryType, extraCategories] {
-        m_packFilterWidget->setCategories(extraCategories + ModrinthAPI::loadCategories(*response, categoryType));
+    connect(task.get(), &Task::succeeded, this, [this, api, response, categoryType, extraCategories] {
+        m_packFilterWidget->setCategories(extraCategories + api->loadCategoriesFor(*response, categoryType));
     });
     task->start();
 }

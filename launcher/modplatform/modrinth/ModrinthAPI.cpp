@@ -211,7 +211,7 @@ std::pair<Task::Ptr, QByteArray*> ModrinthAPI::latestVersion(const QString& hash
     auto bodyRaw = body.toJson();
 
     auto [action, response] = Net::ApiRequest::makeByteArray(
-        QString(BuildConfig.MODRINTH_PROD_URL + "/version_file/%1/update?algorithm=%2").arg(hash, hashFormat), bodyRaw);
+        QString(baseUrl() + "/version_file/%1/update?algorithm=%2").arg(hash, hashFormat), bodyRaw);
     netJob->addNetAction(action);
 
     return { netJob, response };
@@ -247,7 +247,7 @@ std::pair<Task::Ptr, QByteArray*> ModrinthAPI::latestVersions(
 
     QJsonDocument body(bodyObj);
     auto bodyRaw = body.toJson();
-    auto [action, response] = Net::ApiRequest::makeByteArray(QString(BuildConfig.MODRINTH_PROD_URL + "/version_files/update"), bodyRaw);
+    auto [action, response] = Net::ApiRequest::makeByteArray(QString(baseUrl() + "/version_files/update"), bodyRaw);
     netJob->addNetAction(action);
 
     return { netJob, response };
@@ -292,15 +292,15 @@ auto ModrinthAPI::getVersionsURL(const VersionSearchArgs& args) const -> std::op
     getArguments.append(QString("include_changelog=%1").arg(args.includeChangelog ? "true" : "false"));
 
     return QString("%1/project/%2/version%3%4")
-        .arg(BuildConfig.MODRINTH_PROD_URL, args.pack->addonId.toString(), getArguments.isEmpty() ? "" : "?", getArguments.join('&'));
+        .arg(baseUrl(), args.pack->addonId.toString(), getArguments.isEmpty() ? "" : "?", getArguments.join('&'));
 }
 
 std::optional<QString> ModrinthAPI::getDependencyURL(const DependencySearchArgs& args) const
 {
     return args.dependency.version.length() != 0
-               ? QString("%1/version/%2").arg(BuildConfig.MODRINTH_PROD_URL, args.dependency.version)
+               ? QString("%1/version/%2").arg(baseUrl(), args.dependency.version)
                : QString(R"(%1/project/%2/version?game_versions=["%3"]&loaders=["%4"]&include_changelog=%5)")
-                     .arg(BuildConfig.MODRINTH_PROD_URL)
+                     .arg(baseUrl())
                      .arg(args.dependency.addonId.toString())
                      .arg(mapMCVersionToModrinth(args.mcVersion))
                      .arg(getModLoaderStrings(args.loader).join("\",\""))
@@ -310,10 +310,12 @@ std::optional<QString> ModrinthAPI::getDependencyURL(const DependencySearchArgs&
 Net::RPC::Spec<ModPlatform::IndexedPack> ModrinthAPI::getProject(const QString& id) const
 {
     // https://docs.modrinth.com/api/operations/getproject/
-    return { { .url = QUrl(BuildConfig.MODRINTH_PROD_URL + "/project/" + id) },
-             [id](const auto& response) -> Result<ModPlatform::IndexedPack> {
+    return { { .url = QUrl(baseUrl() + "/project/" + id) },
+             [this, id](const auto& response) -> Result<ModPlatform::IndexedPack> {
                  ModPlatform::IndexedPack pack = { .addonId = id };
-                 TRY(Json::requireObject(response).and_then([&pack](const auto& v) { return Modrinth::Parse::loadIndexedPack(pack, v); }))
+                 TRY_INTO(const auto object, Json::requireObject(response))
+                 TRY(Modrinth::Parse::loadIndexedPack(pack, object))
+                 adapt(pack, object);
                  return pack;
              } };
 }
@@ -322,7 +324,7 @@ Net::RPC::Spec<QList<ModPlatform::IndexedPack>> ModrinthAPI::searchProjects(cons
 {
     // https://docs.modrinth.com/api/operations/searchprojects/
     auto url = searchProjectsURL(args);
-    return { { .url = url }, [](const auto& response) -> Result<QList<ModPlatform::IndexedPack>> {
+    return { { .url = url }, [this](const auto& response) -> Result<QList<ModPlatform::IndexedPack>> {
                 QList<ModPlatform::IndexedPack> newList;
                 TRY_INTO(auto doc, Json::requireDocument(response, "Modrinth project search")
                                        .and_then([](const auto& v) { return Json::requireObject(v); })
@@ -333,13 +335,14 @@ Net::RPC::Spec<QList<ModPlatform::IndexedPack>> ModrinthAPI::searchProjects(cons
 
                     ModPlatform::IndexedPack pack;
                     TRY(Modrinth::Parse::loadIndexedPack(pack, packObj))
+                    adapt(pack, packObj);
                     newList << pack;
                 }
                 return newList;
             } };
 }
 
-QUrl ModrinthAPI::searchProjectsURL(const SearchArgs& args)
+QUrl ModrinthAPI::searchProjectsURL(const SearchArgs& args) const
 {
     QStringList getArguments;
     getArguments.append(QString("offset=%1").arg(args.offset));
@@ -352,13 +355,13 @@ QUrl ModrinthAPI::searchProjectsURL(const SearchArgs& args)
     }
     getArguments.append(QString("facets=%1").arg(createFacets(args)));
 
-    return BuildConfig.MODRINTH_PROD_URL + "/search?" + getArguments.join('&');
+    return baseUrl() + "/search?" + getArguments.join('&');
 };
 
 std::pair<Task::Ptr, QByteArray*> ModrinthAPI::getModCategories() const
 {
     auto netJob = makeShared<NetJob>(QString("Modrinth::GetCategories"), APPLICATION->network());
-    auto [action, response] = Net::ApiRequest::makeByteArray(QUrl(BuildConfig.MODRINTH_PROD_URL + "/tag/category"));
+    auto [action, response] = Net::ApiRequest::makeByteArray(QUrl(baseUrl() + "/tag/category"));
     netJob->addNetAction(action);
     QObject::connect(netJob.get(), &Task::failed, netJob.get(),
                      [](const QString& msg) { qDebug() << "Modrinth failed to get categories:" << msg; });
@@ -390,5 +393,5 @@ QList<ModPlatform::Category> ModrinthAPI::loadCategories(const QByteArray& respo
 
 QList<ModPlatform::Category> ModrinthAPI::loadModCategories(const QByteArray& response) const
 {
-    return loadCategories(response, "mod");
+    return loadCategoriesFor(response, "mod");
 }
